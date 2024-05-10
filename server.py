@@ -12,7 +12,6 @@ import base64
 
 
 
-
 script_dir = os.path.dirname(os.path.abspath(__file__))
 gpg_home = os.path.join(script_dir, '.gnupg')
 gpg = gnupg.GPG(gnupghome=gpg_home,
@@ -77,23 +76,21 @@ def serverReceive(serversocket, email):
     all_data = ""
     try:
         while True:
-            print("Waiting for data...")
+            #print("Waiting for data...")
             data = serversocket.recv(1024).decode('utf-8')
             # print(str(data))
             if not data:
                 print("No more data received.")
                 break
-            print(f"Received {len(data)} bytes of data.")
+            #print(f"Received {len(data)} bytes of data.")
             all_data += data
             if all_data.endswith('END'):  # Check for the end signal
                 all_data = all_data[:-3]  # Remove the end signal from the data
-                print(all_data)
+                #print(all_data)
                 print("End of data signal received.")
                 break
     except Exception as e:
         print(f"Error receiving data: {e}")
-    # encodedImage = serversocket.recv(1024).decode().strip()
-    #print("Encrypted Message: " + encodedImage)
 
     filename = 'messages.json'
     data = load_data(filename)
@@ -127,56 +124,32 @@ def serverSend(serversocket, email):
         print(response)
         serversocket.send(response.encode('utf-8'))
     else:
-        # for i in range(len(waiting_messages)):
-        #     #TODO: Determine whether to send in segments according to stored array per message
-        #     serversocket.send(message_senders[i].encode('utf-8'))
-        #     print(serversocket.recv(1024).decode())
-        #     serversocket.send(waiting_messages[i].encode('utf-8'))
-        #     print(serversocket.recv(1024).decode())
-        # complete_message = "All messages stored for the recipient have been sent"
-        # print(complete_message)
-        # serversocket.send(complete_message.encode('utf-8'))
         for i in range(len(waiting_messages)):
             print("Sending message number " + str(i))
             serversocket.send(message_senders[i].encode('utf-8'))
-            #print(serversocket.recv(1024).decode(), "FLAG 1")
             print(serversocket.recv(1024).decode(), "FLAG 2")
             message = waiting_messages[i]
             message_length = len(message)
-
             ack = serversocket.recv(1024).decode().strip()  # wait for an acknowledgement
             print("ACK: ",ack)
             if ack == 'ACK':
-                for j in range(0, message_length, 1024):
-                    serversocket.send(message[j:j+1024].encode('utf-8'))
+                serversocket.send(message.encode('utf-8'))
                 serversocket.send("END".encode('utf-8'))
             print(serversocket.recv(1024).decode())
         complete_message = "All messages stored for the recipient have been sent"
         print(complete_message)
         serversocket.send(complete_message.encode('utf-8'))
         print(serversocket.recv(1024).decode())
-        
-
-            
-    #encrypted_message = serversocket.recv(1024).decode()
-    #decrypted_message = gpg.decrypt(encrypted_message, passphrase="passphrase")
-    #print("Decrypted message: " + str(decrypted_message))
-    #serversocket.send("Message received!".encode('utf-8'))
-    #accessMenu(serversocket, email)
 
 
 def register_user(username, public_key):
     filename = 'users.json'
     data = load_data(filename)
+    CApassphrase = "passphrase"
     if username not in data['users']:
         certificateUnprotected = username + "///" + public_key
-        # with open(ptfile, 'rb') as f:
-        #     #encrypting the file
-        #     status = gpg.encrypt_file(f, recipients=['alice@example.com'],
-        #                             output=ptfile + ".encrypted")
-        # certificateProtected = gpg.encrypt(certificateUnprotected, recipients=[username], sign='CA@example.com', passphrase='passphrase')
         certificateProtected = gpg.sign(
-            certificateUnprotected, passphrase='passphrase')
+            certificateUnprotected, passphrase=CApassphrase)
         print(username + "\n" + str(certificateProtected))
 
         data['users'][username] = {
@@ -193,8 +166,6 @@ def register_user(username, public_key):
 def login(serversocket):
     print("LOGIN ATTEMPT")
     data = load_data('users.json')
-    # emailRequest = "Enter Email: "
-    # serversocket.send(emailRequest.encode('utf-8'))
     emailResponse = serversocket.recv(1024).decode().strip()
     while True:
         if emailResponse not in data['users']:
@@ -271,10 +242,6 @@ def loginmanagement(authmessage, serversocket):
     elif authmessage == "Q":
         serversocket.send("Bye Bye".encode('utf-8'))
         serversocket.close()
-    # else:
-    #     serversocket.send("ERROR: UNKOWN COMMAND. Do you want to [LOGIN] or [SIGN UP] or [Q]uit?".encode('utf-8'))
-    #     loginmanagement(serversocket.recv(1024).decode(), serversocket)
-
 
 # Main method to manage initial connection
 def clientHandler(serversocket,address):

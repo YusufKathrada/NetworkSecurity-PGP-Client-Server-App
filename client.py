@@ -4,6 +4,7 @@ import gnupg
 from PIL import Image
 import base64
 import io
+import hashlib
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 gpg_home = os.path.join(script_dir, '.gnupg')
@@ -33,8 +34,16 @@ def generate_key_pair(email, passphrase):
     public_key = gpg.export_keys(key.fingerprint)
     with open(email + '_public_key.asc', 'w') as f:
         f.write(public_key)
-
     return public_key
+
+
+def create_message_digest(message):
+    # Ensure the message is bytes, encode if it's a string
+    if isinstance(message, str):
+        message = message.encode('utf-8')
+
+    digest = hashlib.sha256(message).hexdigest()
+    return digest
 
 
 def encode_image(image_path, output_format='JPEG'):
@@ -68,7 +77,7 @@ def receive_image(clientsocket):
             # print("Waiting for data...")
             data = b"" + clientsocket.recv(1024)
             if count == 0:
-                print(data)
+                # print(data)
                 count += 1
             if not data:
                 print("No more data received.")
@@ -100,8 +109,9 @@ def receive_image(clientsocket):
         image = Image.open(io.BytesIO(image_data))
         # print(str(image))
         filename = input("Enter the name you wish to save the image as: \n")
-        #TODO: if filename already exists ask user if they want to overwrite existing image.
-        image.save(b"./received_images/" + filename.encode('utf-8') + ".jpeg".encode('utf-8'), format='JPEG')
+        # TODO: if filename already exists ask user if they want to overwrite existing image.
+        image.save(b"./received_images/" + filename.encode('utf-8') +
+                   ".jpeg".encode('utf-8'), format='JPEG')
         print("Image saved successfully.")
     except Exception as e:
         print(f"Failed to save image: {e}")
@@ -110,25 +120,12 @@ def receive_image(clientsocket):
 def send_image_data(clientsocket, image_path):
     # Encode the image to a Base64 string
     encoded_image = encode_image(image_path)
-
-    # Divide the data into manageable chunks
-    chunk_size = 1024  # Define the size of each chunk
-    total_length = len(encoded_image)
-    chunks = (total_length // chunk_size) + \
-        (1 if total_length % chunk_size else 0)
-
-    # Send each chunk
-    for i in range(chunks):
-        start = i * chunk_size
-        end = start + chunk_size
-        clientsocket.send(encoded_image[start:end])
-
+    clientsocket.send(encoded_image)
     # After all chunks have been sent, send the end-of-data signal
     clientsocket.send(b'END')
 
 
 def clientSend(clientsocket, email):
-    # print(clientsocket.recv(1024).decode())
     print(clientsocket.recv(1024).decode())
     recipient = input()
     clientsocket.send(recipient.encode('utf-8'))
@@ -143,25 +140,17 @@ def clientSend(clientsocket, email):
         else:
             clientsocket.send(recipient.encode('utf-8'))
             recipientValidityResponse = clientsocket.recv(1024).decode()
-    recipientPublicKey = clientsocket.recv(1024).decode()
-    print(recipientPublicKey)
-    # print("Enter the message:")
-    # ENCRYPT ENCRYPT
-
-    # TODO: This needs to be an image
-    # image_path = input("Enter the path to the image you want to send: ")
-    image_path = 'images\image2.jpg'
-    # image = encode_image(image_path)
+    
+    #? WHEN TO USE THIS?
+    recipientPublicKey = clientsocket.recv(1024).decode()   
+    #TODO: ENCRYPT ENCRYPT
+    image_path = 'images\image3.jpg'
     send_image_data(clientsocket, image_path)
-
-    # encryptedMessage = "This is my encrypted message."
-    # clientsocket.send(image.encode('utf-8'))
     print(clientsocket.recv(1024).decode())
 
 
 def clientReceive(clientsocket, email):
     response = clientsocket.recv(1024).decode()
-    # print("Response is: " + response)
     count = 1
     if (response.startswith("No")):
         print(response)
@@ -172,10 +161,6 @@ def clientReceive(clientsocket, email):
                 "Please send any messages stored".encode('utf-8'))
             print("Message " + str(count) + ": \n---------------------------- ")
             print("Sender is: " + response)
-            # TODO: Receive image
-            # response = clientsocket.recv(1024).decode()
-            # print("Message is: " + response + "\n")
-
             clientsocket.send('ACK'.encode('utf-8'))  # send acknowledgement
 
             receive_image(clientsocket)
@@ -219,19 +204,14 @@ def userMenu(clientsocket):
         if option == "SIGN UP":
             email = input("Please enter your email\n")
             clientsocket.send(email.encode('utf-8'))
-
             isRegistered = clientsocket.recv(1024).decode('utf-8')
-
             if isRegistered == "True":
                 continue
-
             passphrase = input(
                 "Please enter a passphrase. You will need to save this for later!\n").strip()
-
             # generate key pair
             public_key = generate_key_pair(email, passphrase)
             clientsocket.send(public_key.encode('utf-8'))
-
             clientsocket.close()
             return
 
@@ -244,19 +224,12 @@ def userMenu(clientsocket):
                     "This user does not exist, please resubmit a valid email:\n")
                 clientsocket.send(email.encode('utf-8'))
                 emailResponse = clientsocket.recv(1024).decode()
-                # print(emailResponse)
             encryptedNonceToClient = clientsocket.recv(1024).decode()
-            # print(str(encryptedNonceToClient))
             passphraseClient = input("Please enter your passphrase\n").strip()
 
             decryptedNonceClient = gpg.decrypt(
                 encryptedNonceToClient, passphrase=passphraseClient)
             print(str(decryptedNonceClient))
-
-            # key_data = open('CA_public_key.asc').read()
-            # import_result = gpg.import_keys(key_data)
-            # print(str(import_result.fingerprints[0]))
-            # encryptedNonceToServer = gpg.encrypt(str(decryptedNonceClient), import_result.fingerprints[0], always_trust=True)
             encryptedNonceToServer = gpg.encrypt(
                 str(decryptedNonceClient), recipients=['CA@example.com'])
 
@@ -278,14 +251,10 @@ def userMenu(clientsocket):
 def main():
     clientsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    # host = "0.0.0.0"
     host = socket.gethostname()
-
     port = 1200
 
-    # You can substitue the host with the server IP
     clientsocket.connect((host, port))
-
     userMenu(clientsocket)
 
 
