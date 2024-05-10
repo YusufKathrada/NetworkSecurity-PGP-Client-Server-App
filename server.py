@@ -18,6 +18,15 @@ gpg = gnupg.GPG(gnupghome=gpg_home,
                 gpgbinary='C:\\Program Files (x86)\\GnuPG\\bin\\gpg.exe')
 
 
+# client receive 
+RECEIVE_REQUEST = """RECEIVE
+SENDER: {sender}
+RECIPIENT: {recipient}
+TIMESTAMP: {timestamp}
+
+{message}"""
+
+
 def load_data(filename):
     with open(filename, 'r') as file:
         data = json.load(file)
@@ -50,6 +59,11 @@ def accessMenu(serversocket, email):
         serversocket.send("Bye Bye".encode('utf-8'))
         serversocket.close()
 
+def send_message(s, header):
+    s.send(header.encode('utf-8'))
+    s.send(b'END')
+
+
 def serverReceive(serversocket, email):
     print("CLIENT IS ATTEMPTING TO SEND")
     serversocket.send("Please enter the email of the recipient:".encode('utf-8'))
@@ -69,9 +83,7 @@ def serverReceive(serversocket, email):
             return
 
     serversocket.send("Recipient found!".encode('utf-8'))
-
     serversocket.send(data['users'][recipientEmail]['public_key'].encode('utf-8'))
-    
     #TODO: Receive full image from client
     all_data = ""
     try:
@@ -92,6 +104,16 @@ def serverReceive(serversocket, email):
     except Exception as e:
         print(f"Error receiving data: {e}")
 
+    
+    # print(all_data)
+
+    # split header and image data
+    split_message = all_data.split('\n\n')
+    header = split_message[0]
+    message_data = split_message[1]
+    print(header)
+
+    # Save the message to the json file
     filename = 'messages.json'
     data = load_data(filename)
 
@@ -99,7 +121,7 @@ def serverReceive(serversocket, email):
         "sender": email,
         "recipient": recipientEmail,
         "timestamp": datetime.datetime.now().isoformat(),
-        "messageContent": all_data
+        "messageContent": message_data
     })
 
     save_data(filename, data)
@@ -126,15 +148,25 @@ def serverSend(serversocket, email):
     else:
         for i in range(len(waiting_messages)):
             print("Sending message number " + str(i))
-            serversocket.send(message_senders[i].encode('utf-8'))
-            print(serversocket.recv(1024).decode(), "FLAG 2")
+            serversocket.send(str(i).encode('utf-8'))
+            print(serversocket.recv(1024).decode())
             message = waiting_messages[i]
             message_length = len(message)
             ack = serversocket.recv(1024).decode().strip()  # wait for an acknowledgement
             print("ACK: ",ack)
             if ack == 'ACK':
-                serversocket.send(message.encode('utf-8'))
-                serversocket.send("END".encode('utf-8'))
+                # serversocket.send(message.encode('utf-8'))
+                # serversocket.send("END".encode('utf-8'))
+                
+                # Send the message
+                send_message(serversocket, RECEIVE_REQUEST.format(
+                    sender = message_senders[i],
+                    recipient = email,
+                    timestamp = datetime.datetime.now().isoformat(),
+                    message = message
+                ))
+
+                
             print(serversocket.recv(1024).decode())
         complete_message = "All messages stored for the recipient have been sent"
         print(complete_message)
