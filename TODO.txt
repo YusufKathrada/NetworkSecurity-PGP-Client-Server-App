@@ -10,6 +10,9 @@ Image saving:
     - Check if that filename has been used already, if so ask if user wants to overwrite
     - Allow for caption saving: In what format
     - Delete once image has been received
+    - Do we want the image to literally show the caption on it?
+
+- Account for headers in encrypted_message_send
     
 Header Structure:
 

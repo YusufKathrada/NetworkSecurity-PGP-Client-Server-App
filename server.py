@@ -22,8 +22,7 @@ gpg = gnupg.GPG(gnupghome=gpg_home,
 RECEIVE_REQUEST = """RECEIVE
 SENDER: {sender}
 RECIPIENT: {recipient}
-TIMESTAMP: {timestamp}
-
+TIMESTAMP: {timestamp}/////
 {message}"""
 
 
@@ -108,9 +107,10 @@ def serverReceive(serversocket, email):
     # print(all_data)
 
     # split header and image data
-    split_message = all_data.split('\n\n')
+    split_message = all_data.split("/////")
     header = split_message[0]
     message_data = split_message[1]
+    #print(message_data[2], "FLAG")
     print(header)
 
     # Save the message to the json file
@@ -121,6 +121,8 @@ def serverReceive(serversocket, email):
         "sender": email,
         "recipient": recipientEmail,
         "timestamp": datetime.datetime.now().isoformat(),
+        #TODO: add caption
+        # "caption": caption
         "messageContent": message_data
     })
 

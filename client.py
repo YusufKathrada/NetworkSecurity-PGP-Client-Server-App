@@ -7,6 +7,10 @@ import io
 import hashlib
 import datetime
 import zlib
+from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+from os import urandom
+
 
 # Get the directory of the script
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -23,9 +27,56 @@ gpg.encoding = 'utf-8'
 SEND_REQUEST = """SEND
 SENDER: {sender}
 RECIPIENT: {recipient}
-TIMESTAMP: {timestamp}
-
+TIMESTAMP: {timestamp}/////
 {message}"""
+
+SIGNATURE_AND_MESSAGE = """
+SIGNATURE:
+{timestamp}
+{sender_email}
+{message_digest}
+
+MESSAGE: 
+{filename}
+{timestamp}
+{caption}
+{image_data}"""
+
+
+# PGP MESSAGE Structure:
+PGP_MESSAGE = """MESSAGE
+SESSION_KEY_COMPONENT:
+{recipient_email}
+{session_key}
+
+SIGNATURE_AND_MESSAGE:
+{signature_and_message}"""
+
+
+
+
+def session_decrypt(encrypted_image):
+    key = b'abcdefghijklmnop'
+    nonce = encrypted_image[encrypted_image.index(b"/////")+5:encrypted_image.index(b"//////")]
+    key = encrypted_image[encrypted_image.index(b"//////")+6:]
+    print("NONCE: ",nonce)    
+    e_image_data = encrypted_image[:encrypted_image.index(b"/////")]
+    decrypt_cipher = AES.new(key, AES.MODE_CTR,nonce=nonce)
+    decrypted_image_b64 = decrypt_cipher.decrypt(e_image_data)    
+    return decrypted_image_b64
+
+def generate_session_key(data):
+    key = get_random_bytes(16)
+    cipher = AES.new(key, AES.MODE_CTR)
+    cipher_text = cipher.encrypt(data)
+    nonce = cipher.nonce
+    decrypt_cipher = AES.new(key, AES.MODE_CTR, nonce=nonce)
+    #plain_text = decrypt_cipher.decrypt(cipher_text)
+    print("NONCE NONCE: ",str(nonce))
+    payload = base64.b64encode(cipher_text)
+    #payload = base64.b64encode(cipher_text) + b"/////" + base64.b64encode(nonce)
+    return (payload, nonce, key)
+
 
 # Function that sends header messages
 def send_message(s, header):
@@ -101,6 +152,41 @@ def fix_padding(data):
         data += '=' * (4 - missing_padding)
     return data
 
+def process_message_for_sending(recipient_email, image_path, sender_email, caption, passphrase):
+    timestamp = datetime.datetime.now().isoformat()
+    message_digest = create_message_digest(encode_image(image_path))
+    filename = image_path
+    image_data = encode_image(image_path).decode()
+    # sign message digest with sender's private key
+    encrypted_message_digest = gpg.sign(message_digest, passphrase=passphrase, keyid=sender_email)
+    signature_and_message = SIGNATURE_AND_MESSAGE.format(
+        # Signature
+        timestamp=timestamp,
+        sender_email=sender_email,
+        message_digest=encrypted_message_digest,
+
+        # Message
+        filename=filename,
+        caption=caption,
+        image_data=image_data
+        )
+    compressed_signature_and_message = compress(signature_and_message)
+    # encrypt with session key
+    payload, nonce, key = generate_session_key(compressed_signature_and_message)
+    #ENCRYPT KEY & NONCE WITH PUBLIC KEY
+    nonce_and_key = f"{nonce}\n\n{key}"
+    encrypted_nonce_and_key = gpg.encrypt(nonce_and_key, recipients=[recipient_email])
+    encrypted_comp_signature_and_message = payload
+    return PGP_MESSAGE.format(
+        # Session key component
+        recipient_email=recipient_email,
+        session_key=str(encrypted_nonce_and_key),
+
+        signature_and_message= encrypted_comp_signature_and_message
+    )
+
+
+
 
 def receive_message(clientsocket):
     # Receive data
@@ -125,12 +211,33 @@ def receive_message(clientsocket):
                 break
     except Exception as e:
         print(f"Error receiving data: {e}")
-    split_message = all_data.decode('utf-8').split('\n\n')
+    
+    # decoded_data = all_data.decode('utf-8')
+    # image_data_encrypted = base64.b64decode(decoded_data)
+    # image_data_decrypted = session_decrypt(image_data_encrypted)
+    # image_data = base64.b64decode(image_data_decrypted)
+
+    #TODO: Split the header and the message data
+    split_message = all_data.decode('utf-8').split("/////")
     header = split_message[0]
     message_data = split_message[1]
-    process_image(message_data)
+    image_data = process_message(message_data)
+    process_image(image_data)
     return header
     
+def process_message(d):
+    session_key_start = d.index("SESSION_KEY_COMPONENT")
+    session_key_end = d.index("\n\nSIGNATURE_AND_MESSAGE")
+    session_key_component = d[session_key_start:session_key_end]
+    # consists of recip email and session key
+    session_key_component = session_key_component.split('\n')
+    
+
+    signature_and_message_start = d.index("SIGNATURE_AND_MESSAGE")+24
+    signature_and_message_component = d[signature_and_message_start:]
+
+    #decrypt the session key
+
 
 def process_image(d):
     # Decode and save image
@@ -156,31 +263,6 @@ def process_image(d):
         print("Image saved successfully.")
     except Exception as e:
         print(f"Failed to save image: {e}")
-
-#! previosuly working send_image_data function
-# def send_image_data(clientsocket, image_path):
-#     # Encode the image to a Base64 string
-#     encoded_image = encode_image(image_path)
-#     clientsocket.send(encoded_image)
-#     # After all chunks have been sent, send the end-of-data signal
-#     clientsocket.send(b'END')
-
-#! previosuly working clientSEnd function
-# def clientSend(clientsocket, email):
-#     print(clientsocket.recv(1024).decode())
-#     recipient = input()
-#     clientsocket.send(recipient.encode('utf-8'))
-
-#     recipientValidityResponse = clientsocket.recv(1024).decode()
-#     while recipientValidityResponse == "Recipient not found. Please try again.":
-#         print(recipientValidityResponse)
-#         recipient = input()
-#         if recipient == "Q":
-#             clientsocket.send(recipient.encode('utf-8'))
-#             exit()
-#         else:
-#             clientsocket.send(recipient.encode('utf-8'))
-#             recipientValidityResponse = clientsocket.recv(1024).decode()
     
 #     #? WHEN TO USE THIS?
 #     recipientPublicKey = clientsocket.recv(1024).decode()   
@@ -189,7 +271,7 @@ def process_image(d):
 #     send_image_data(clientsocket, image_path)
 #     print(clientsocket.recv(1024).decode())
 
-def clientSend(clientsocket, email):
+def clientSend(clientsocket, email, passphrase):
     print(clientsocket.recv(1024).decode())
     recipient = input()
     clientsocket.send(recipient.encode('utf-8'))
@@ -211,24 +293,26 @@ def clientSend(clientsocket, email):
     image_path = 'images\image3.jpg'
 
 
-    send_message(clientsocket, SEND_REQUEST.format(
+    caption = input("Enter a caption for the image: \n")
+    
+
+    send_request = SEND_REQUEST.format(
     sender=email,
     recipient=recipient,
     timestamp=datetime.datetime.now().isoformat(),
-    message= encode_image(image_path).decode()))
+    message= process_message_for_sending(recipient, image_path, email, caption, passphrase))
 
+    send_message(clientsocket, send_request)
 
-    #TODO: ENCRYPT ENCRYPT
-    # send_image_data(clientsocket, image_path)
     print(clientsocket.recv(1024).decode())
 
 
-def clientReceive(clientsocket, email):
+def clientReceive(clientsocket, email, passphrase):
     response = clientsocket.recv(1024).decode()
     #count = 1
     if (response.startswith("No")):
         print(response)
-        accessManagement(clientsocket, email)
+        accessManagement(clientsocket, email, passphrase)
     else:
         while (not (response.strip().startswith("All messages stored"))):
             clientsocket.send(
@@ -254,7 +338,7 @@ def clientReceive(clientsocket, email):
         clientsocket.send("All messages received".encode('utf-8'))
 
 
-def accessManagement(clientsocket, email):
+def accessManagement(clientsocket, email, passphrase):
     print(clientsocket.recv(1024).decode())
     menuOption = input()
     clientsocket.send(menuOption.encode('utf-8'))
@@ -269,11 +353,11 @@ def accessManagement(clientsocket, email):
         print("Quitting")
         exit()
     elif menuOption == "SEND":
-        clientSend(clientsocket, email)
-        accessManagement(clientsocket, email)
+        clientSend(clientsocket, email, passphrase)
+        accessManagement(clientsocket, email, passphrase)
     elif menuOption == "RECEIVE":
-        clientReceive(clientsocket, email)
-        accessManagement(clientsocket, email)
+        clientReceive(clientsocket, email, passphrase)
+        accessManagement(clientsocket, email, passphrase)
 
 
 def userMenu(clientsocket):
@@ -321,7 +405,7 @@ def userMenu(clientsocket):
                 print("Incorrect Passphrase or Public Key. Disconnecting.")
                 exit()
             else:
-                accessManagement(clientsocket, email)
+                accessManagement(clientsocket, email, passphraseClient)
 
         elif option == "Q":
             clientsocket.close()
