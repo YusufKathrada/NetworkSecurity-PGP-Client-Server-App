@@ -1,19 +1,16 @@
 Image sending:
-    - allow user to enter name of file
-        - sender should send filename, reciever saves with that filename, unless name already found in directory, then prompted to enter a new name
-    - Allow for caption senidng
     - sign hash -> message digest implement hashing
-    - session key generate session key
-    - bundle all and encrypt with session
 
 Image saving:
-    - Check if that filename has been used already, if so ask if user wants to overwrite
-    - Allow for caption saving: In what format
-    - Delete once image has been received
+    - Compare hashes upon receipt
+
+NICE TO HAVES: 
     - Do we want the image to literally show the caption on it?
 
-- Account for headers in encrypted_message_send
-    
+CHANGE CA PASSPHRASE
+
+
+
 Header Structure:
 
 # RECEIVE 

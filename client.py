@@ -11,7 +11,7 @@ from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 from os import urandom
 
-
+#311 #330
 # Get the directory of the script
 script_dir = os.path.dirname(os.path.abspath(__file__))
 gpg_home = os.path.join(script_dir, '.gnupg')
@@ -52,29 +52,40 @@ SESSION_KEY_COMPONENT:
 SIGNATURE_AND_MESSAGE:
 {signature_and_message}"""
 
+# CHANGES IN SESSION_DECRYPT, GENERATE_SESSION_KEY, PROCESS MESSAGE
 
 
+def session_decrypt(payload, nonce, key):
+    # keyLiteral = b'Q\xd3\xd4\xcc\x8a\xa1\x91qQ\x12\xbd\x85\xad_\x9f\x1c'
+    # nonceLiteral = b'd\xf8>\xfc\xcd\x8b\x1ep'
 
-def session_decrypt(encrypted_image):
-    key = b'abcdefghijklmnop'
-    nonce = encrypted_image[encrypted_image.index(b"/////")+5:encrypted_image.index(b"//////")]
-    key = encrypted_image[encrypted_image.index(b"//////")+6:]
-    print("NONCE: ",nonce)    
-    e_image_data = encrypted_image[:encrypted_image.index(b"/////")]
-    decrypt_cipher = AES.new(key, AES.MODE_CTR,nonce=nonce)
-    decrypted_image_b64 = decrypt_cipher.decrypt(e_image_data)    
-    return decrypted_image_b64
+    bytekey = key.encode('latin1').decode('unicode_escape').encode('latin1')
+    bytenonce = nonce.encode('latin1').decode(
+        'unicode_escape').encode('latin1')
+    # bytepayload = payload.encode('latin1').decode('unicode_escape').encode('latin1')
+    # print("BYTE KEY LEN: ",len(bytekey))
+    # print("BYTE NONCE LEN: ",len(bytenonce))
+    decrypt_cipher = AES.new(bytekey, AES.MODE_CTR, nonce=bytenonce)
+    decrypted_payload_b64 = decrypt_cipher.decrypt(payload)
+    return decrypted_payload_b64
+
 
 def generate_session_key(data):
     key = get_random_bytes(16)
     cipher = AES.new(key, AES.MODE_CTR)
     cipher_text = cipher.encrypt(data)
     nonce = cipher.nonce
-    decrypt_cipher = AES.new(key, AES.MODE_CTR, nonce=nonce)
-    #plain_text = decrypt_cipher.decrypt(cipher_text)
-    print("NONCE NONCE: ",str(nonce))
+    # decrypt_cipher = AES.new(key, AES.MODE_CTR, nonce=nonce)
+    # plain_text = decrypt_cipher.decrypt(cipher_text)
+    # print("NONCE: ", str(nonce))
+    # print("KEY: ", str(key))
     payload = base64.b64encode(cipher_text)
-    #payload = base64.b64encode(cipher_text) + b"/////" + base64.b64encode(nonce)
+    return payload, nonce, key
+    # print(str(cipher_text[:50])+ "..." + str(cipher_text[-50:]))
+    # decrypted_payload = session_decrypt(cipher_text, key, nonce)
+    # print(str(decrypted_payload)[:50]+ "..." + str(decrypted_payload)[-50:])
+
+    # payload = base64.b64encode(cipher_text) + b"/////" + base64.b64encode(nonce)
     return (payload, nonce, key)
 
 
@@ -82,6 +93,7 @@ def generate_session_key(data):
 def send_message(s, header):
     s.send(header.encode('utf-8'))
     s.send(b'END')
+
 
 def generate_key_pair(email, passphrase):
     # inputs to generate the keys
@@ -114,24 +126,27 @@ def create_message_digest(message):
     digest = hashlib.sha256(message).hexdigest()
     return digest
 
+
 def compress(message):
     if isinstance(message, str):
         # Check if the message is in byte form - if not, encode it
         message = message.encode('utf-8')
     # compress the message into zip form using zlib library
-    compressed_message = zlib.compress(message) 
+    compressed_message = zlib.compress(message)
     return compressed_message
 
-def decompress(compressed_message):
+
+def decompress(message):
     if isinstance(message, str):
         # Check if the message is in byte form - if not, encode it
         message = message.encode('utf-8')
     # decompress the message from zip form using zlib library
     decompressed_message = zlib.decompress(message)
     return decompressed_message
-    
+
 
 def encode_image(image_path, output_format='JPEG'):
+
     # Load the image
     img = Image.open(image_path)
 
@@ -152,13 +167,15 @@ def fix_padding(data):
         data += '=' * (4 - missing_padding)
     return data
 
+
 def process_message_for_sending(recipient_email, image_path, sender_email, caption, passphrase):
     timestamp = datetime.datetime.now().isoformat()
     message_digest = create_message_digest(encode_image(image_path))
     filename = image_path
     image_data = encode_image(image_path).decode()
     # sign message digest with sender's private key
-    encrypted_message_digest = gpg.sign(message_digest, passphrase=passphrase, keyid=sender_email)
+    encrypted_message_digest = gpg.sign(
+        message_digest, passphrase=passphrase, keyid=sender_email)
     signature_and_message = SIGNATURE_AND_MESSAGE.format(
         # Signature
         timestamp=timestamp,
@@ -169,33 +186,36 @@ def process_message_for_sending(recipient_email, image_path, sender_email, capti
         filename=filename,
         caption=caption,
         image_data=image_data
-        )
+    )
     compressed_signature_and_message = compress(signature_and_message)
+    # print(b"COMPRESSED IMAGE:", compressed_signature_and_message[:50], b" ... ",compressed_signature_and_message[-50:] )
     # encrypt with session key
-    payload, nonce, key = generate_session_key(compressed_signature_and_message)
-    #ENCRYPT KEY & NONCE WITH PUBLIC KEY
+    payload, nonce, key = generate_session_key(
+        compressed_signature_and_message)
+    # ENCRYPT KEY & NONCE WITH PUBLIC KEY
     nonce_and_key = f"{nonce}\n\n{key}"
-    encrypted_nonce_and_key = gpg.encrypt(nonce_and_key, recipients=[recipient_email])
+    encrypted_nonce_and_key = gpg.encrypt(
+        nonce_and_key, recipients=[recipient_email])
     encrypted_comp_signature_and_message = payload
-    return PGP_MESSAGE.format(
+    pgp_message = PGP_MESSAGE.format(
         # Session key component
         recipient_email=recipient_email,
         session_key=str(encrypted_nonce_and_key),
 
-        signature_and_message= encrypted_comp_signature_and_message
+        signature_and_message=encrypted_comp_signature_and_message
     )
+    #TODO: remove encode here
+    return base64.b64encode(pgp_message.encode('utf-8'))
 
 
-
-
-def receive_message(clientsocket):
+def receive_message(clientsocket, passphrase):
     # Receive data
-    all_data = b""
+    all_data = ""
     count = 0
     try:
         while True:
             # print("Waiting for data...")
-            data = b"" + clientsocket.recv(1024)
+            data = "" + clientsocket.recv(1024).decode('utf-8')
             if count == 0:
                 # print(data)
                 count += 1
@@ -204,46 +224,134 @@ def receive_message(clientsocket):
                 break
             # print(f"Received {len(data)} bytes of data.")
             all_data += data
-            if all_data.endswith(b'END'):  # Check for the end signal
+            if all_data.endswith("END"):  # Check for the end signal
                 all_data = all_data[:-3]  # Remove the end signal from the data
                 # print(all_data)
                 print("End of data signal received.")
                 break
     except Exception as e:
         print(f"Error receiving data: {e}")
-    
+
     # decoded_data = all_data.decode('utf-8')
     # image_data_encrypted = base64.b64decode(decoded_data)
     # image_data_decrypted = session_decrypt(image_data_encrypted)
     # image_data = base64.b64decode(image_data_decrypted)
 
-    #TODO: Split the header and the message data
-    split_message = all_data.decode('utf-8').split("/////")
+
+    split_message = all_data.split("/////")
     header = split_message[0]
-    message_data = split_message[1]
-    image_data = process_message(message_data)
-    process_image(image_data)
-    return header
+    #TODO: Check if we can remove the b'' in a better way
+    message_data = split_message[1][3:-1]
     
-def process_message(d):
+    
+    #all_data = fix_padding(all_data)
+    b64_decode_data = (base64.b64decode(message_data))
+    final_message_data = b64_decode_data.decode('utf-8')
+    print("MESSAGE DATA:", message_data[:100])
+    # messageArray consists of filename, timestamp, caption, and image data in that order
+    messageArray = process_message(final_message_data, passphrase, header)
+    filename = messageArray[0]
+    timestamp = messageArray[1]
+    caption = messageArray[2]
+    image_data = messageArray[3]
+
+    # Process the image data
+    process_image(image_data, filename, timestamp, caption)
+
+    return header
+
+
+def process_message(d, passphrase, header):
+    sender = header[header.find("SENDER: ")+8:header.find("\nRECIPIENT")]
+    
+    #print("DOUBLE CHECK SENDER",sender)
     session_key_start = d.index("SESSION_KEY_COMPONENT")
     session_key_end = d.index("\n\nSIGNATURE_AND_MESSAGE")
     session_key_component = d[session_key_start:session_key_end]
-    # consists of recip email and session key
-    session_key_component = session_key_component.split('\n')
+
+    # consists of recip email and session key, in that order
+    session_key_component_email = session_key_component[23:session_key_component.index(
+        "\n-----BEGIN PGP MESSAGE-----")]
+    # session_key_component_session consists of the session key and a nonce
+    session_key_component_session = session_key_component[session_key_component.index(
+        "-----BEGIN PGP MESSAGE-----"):]
+
+    signature_and_message_start = d.index("SIGNATURE_AND_MESSAGE")+25
+    signature_and_message_component = d[signature_and_message_start:-1]
+    # print("SIGMESS COMPONENT >>>>",signature_and_message_component[:50]," ... ",signature_and_message_component[-50:])
+    signature_and_message_component = base64.b64decode(
+        signature_and_message_component)
+    # print("SIGNATURE AND MESSAGE COMPONENT " + signature_and_message_component[:50] + " . . . "+ signature_and_message_component[-50:])
+    # decrypt the session key with the recipient's private key
+    decrypted_session_key = gpg.decrypt(
+        session_key_component_session, passphrase=passphrase)
+
+    decrypted_session_key_str = str(decrypted_session_key)
+    session_arr = decrypted_session_key_str.split("\n\n")
+
+    # nonce = encrypted_image[encrypted_image.index(b"/////")+5:encrypted_image.index(b"//////")]
+    # key = encrypted_image[encrypted_image.index(b"//////")+6:]
+
+    nonce = session_arr[0][2:-1]
+    key = session_arr[1][2:-1]
+    # print(nonce)
+    # print(key)
+
+    # decrypt the signature and message with the session key
+    # decrypt_cipher = AES.new(key.encode(), AES.MODE_CTR, nonce=nonce.encode())
+    # decrypted_signature_and_message = decrypt_cipher.decrypt(base64.b64decode(signature_and_message_component))
+    decrypted_signature_and_message = session_decrypt(
+        signature_and_message_component, nonce, key)
+    # print(decrypted_signature_and_message[:50], " ... ", decrypted_signature_and_message[-50:])
+    # print("flag 1" + str(decrypted_signature_and_message))
+
+    # decompress the decrypted signature and message
+    decompressed_signature_and_message = decompress(
+        decrypted_signature_and_message)
+    # print(decompressed_signature_and_message, " Flag 2")
+    # split the decompressed signature and message into the signature and message
+    decompressed_signature_and_message = decompressed_signature_and_message.decode(
+    ).split('\n\nMESSAGE: ')
+    signature = decompressed_signature_and_message[0]
     
+    message = decompressed_signature_and_message[1][1:]
+    # print("MESSAGE PREAMBLE >>>>", message[:200])
 
-    signature_and_message_start = d.index("SIGNATURE_AND_MESSAGE")+24
-    signature_and_message_component = d[signature_and_message_start:]
+    # split message into filename, timestamp, caption, and image data
+    messageArray = message.split("\n")
+    filename = messageArray[0]
+    timestamp = messageArray[1]
+    caption = messageArray[2]
+    image_data = messageArray[3]
+    #verification = verifySignature(signature,sender,image_data)
+    # print("filename: ",filename)
+    # print("timestamp: ",timestamp)
+    # print("caption: ",caption)
+    # print("IMAGE DATA >>>> ",image_data[:100])
 
-    #decrypt the session key
+    # ? What else do we need to return?
+    return messageArray
 
+def verifySignature(signature, sender, image_data):
+    #hashCheck = create_message_digest(image_data)
+    #decrypted_signature = gpg.verify(
+    #            signature, hashCheck)
+    #if decrypted_signature.key_id != sender:
+    #   return False
+    #return True
+    return sender
 
-def process_image(d):
+def process_image(image_data, filename, timestamp, caption):
     # Decode and save image
     try:
         print("Decoding image data...")
-        data = d
+        filename = filename[filename.find('\\')+1:]
+        print("FILENAME: ", filename)
+        print("TIMESTAMP: ", timestamp)
+        # TODO: Provide user option to add caption to image file
+        print("CAPTION: ", caption)
+        #caption_preference = input("Would you like to add the")
+        data = image_data
         padded_data = fix_padding(data)
         encoded_again = padded_data.encode('utf-8')
         image_data = base64.b64decode(encoded_again)
@@ -255,21 +363,23 @@ def process_image(d):
     try:
         print("Saving image...")
         image = Image.open(io.BytesIO(image_data))
-        # print(str(image))
-        filename = input("Enter the name you wish to save the image as: \n")
-        # TODO: if filename already exists ask user if they want to overwrite existing image.
-        image.save(b"./received_images/" + filename.encode('utf-8') +
-                   ".jpeg".encode('utf-8'), format='JPEG')
+
+        # the filename should be set to the filename of the image but if that name matches an existing file, user can enter their own name
+        if os.path.exists(f"./received_images/{filename}"):
+            print("Image with this name already exists.")
+            filename = input(
+                "Enter the name you wish to save the image as: \n")
+            filename = filename + ".jpg"
+        else:
+            filename = filename
+        # filename = input("Enter the name you wish to save the image as: \n")
+        image.save(b"./received_images/" +
+                   filename.encode('utf-8'), format='JPEG')
         print("Image saved successfully.")
+        print("============================================")
     except Exception as e:
         print(f"Failed to save image: {e}")
-    
-#     #? WHEN TO USE THIS?
-#     recipientPublicKey = clientsocket.recv(1024).decode()   
-#     #TODO: ENCRYPT ENCRYPT
-#     image_path = 'images\image3.jpg'
-#     send_image_data(clientsocket, image_path)
-#     print(clientsocket.recv(1024).decode())
+
 
 def clientSend(clientsocket, email, passphrase):
     print(clientsocket.recv(1024).decode())
@@ -286,21 +396,30 @@ def clientSend(clientsocket, email, passphrase):
         else:
             clientsocket.send(recipient.encode('utf-8'))
             recipientValidityResponse = clientsocket.recv(1024).decode()
-    
-    
-    recipientPublicKey = clientsocket.recv(1024).decode()   #? <-----  WHEN WE GONNA USE THIS?
-    #TODO: Change to accept user input
-    image_path = 'images\image3.jpg'
 
+    recipientPublicKey = clientsocket.recv(
+        1024).decode()  # ? <-----  WHEN WE GONNA USE THIS?
+    # TODO: Change to accept user input
+
+    image_path = input("Enter the path to the image you wish to send: \n")
+
+    # check that the image exists
+    try:
+        with Image.open(image_path) as img:
+            img.verify()
+            print("Image found. Processing...")
+    except FileNotFoundError:
+        print("Image not found. Please try again.")
+        image_path = input("Enter the path to the image you wish to send: \n")
+    # image_path = 'images\image3.jpg'
 
     caption = input("Enter a caption for the image: \n")
-    
 
     send_request = SEND_REQUEST.format(
-    sender=email,
-    recipient=recipient,
-    timestamp=datetime.datetime.now().isoformat(),
-    message= process_message_for_sending(recipient, image_path, email, caption, passphrase))
+        sender=email,
+        recipient=recipient,
+        timestamp=datetime.datetime.now().isoformat(),
+        message=process_message_for_sending(recipient, image_path, email, caption, passphrase))
 
     send_message(clientsocket, send_request)
 
@@ -309,7 +428,7 @@ def clientSend(clientsocket, email, passphrase):
 
 def clientReceive(clientsocket, email, passphrase):
     response = clientsocket.recv(1024).decode()
-    #count = 1
+    # count = 1
     if (response.startswith("No")):
         print(response)
         accessManagement(clientsocket, email, passphrase)
@@ -319,22 +438,20 @@ def clientReceive(clientsocket, email, passphrase):
                 "Please send any messages stored".encode('utf-8'))
             print("Message " + response + ": \n---------------------------- ")
 
-            
             clientsocket.send('ACK'.encode('utf-8'))  # send acknowledgement
 
-            header = receive_message(clientsocket)
+            header = receive_message(clientsocket, passphrase)
             print(header)
-            header_split = (header.split('\n')) #splice from space
-            print("Sender is: " + (header_split[1])[8:]) #change response to be sender retrieved from message header
+            header_split = (header.split('\n'))  # splice from space
+            # change response to be sender retrieved from message header
+            print("Sender is: " + (header_split[1])[8:])
 
-
-            
             print("Image has been received.")
             clientsocket.send("Are there any other messages?".encode('utf-8'))
             response = clientsocket.recv(1024).decode()
-            #count += 1
+            # count += 1
         print(response)
-        #TODO: More formal header possibly
+        # TODO: More formal header possibly
         clientsocket.send("All messages received".encode('utf-8'))
 
 

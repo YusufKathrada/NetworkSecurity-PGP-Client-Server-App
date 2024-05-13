@@ -36,6 +36,14 @@ def save_data(filename, data):
     with open(filename, 'w') as file:
         json.dump(data, file, indent=4)
 
+def delete_received_messages(filename, data):
+    with open(filename, 'w') as file:
+        # Write the initial part of the JSON structure
+        file.write('{"messages": \n')
+        json.dump(data, file, indent=4)
+        # Close the JSON object
+        file.write('}')
+
 
 def accessMenu(serversocket, email):
     menuMessage = "Do you want to [SEND] or [RECEIVE] or [Q]uit?"
@@ -138,11 +146,16 @@ def serverSend(serversocket, email):
     filename = 'messages.json'
     data = load_data(filename)
     waiting_messages = []
+    messages = []
     message_senders = []
     for message in data['messages']:
         if(message['recipient'] == email):
             waiting_messages.append(message['messageContent'])
             message_senders.append(message['sender'])
+        else:
+            messages.append(message)
+    data_to_save = {'messages': messages}
+    delete_received_messages(filename, messages)
     if(waiting_messages == []):
         response = "No messages currently stored for recipient " + email
         print(response)
@@ -156,10 +169,7 @@ def serverSend(serversocket, email):
             message_length = len(message)
             ack = serversocket.recv(1024).decode().strip()  # wait for an acknowledgement
             print("ACK: ",ack)
-            if ack == 'ACK':
-                # serversocket.send(message.encode('utf-8'))
-                # serversocket.send("END".encode('utf-8'))
-                
+            if ack == 'ACK':                
                 # Send the message
                 send_message(serversocket, RECEIVE_REQUEST.format(
                     sender = message_senders[i],
@@ -168,7 +178,6 @@ def serverSend(serversocket, email):
                     message = message
                 ))
 
-                
             print(serversocket.recv(1024).decode())
         complete_message = "All messages stored for the recipient have been sent"
         print(complete_message)
