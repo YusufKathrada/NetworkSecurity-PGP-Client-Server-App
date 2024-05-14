@@ -14,10 +14,10 @@ gpg.encoding = 'utf-8'
 
 #inputs to generate the keys
 input_data = gpg.gen_key_input(
-    name_email = 'alice@example.com',
+    name_email = 'yusuf',
     key_type="RSA",
     key_length=1024,
-    passphrase='passphrase',
+    passphrase='yusuf',
 )
 
 #generating the key pairs (public and private)
@@ -32,7 +32,7 @@ else:
 #export the public key
 public_key = gpg.export_keys(key.fingerprint)
 
-with open('alice_public_key.asc', 'w') as f:
+with open('yusuf_public_key.asc', 'w') as f:
     f.write(public_key)
 
 #TODO: send this public key to Bob/ other clients
