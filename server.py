@@ -96,34 +96,26 @@ def serverReceive(serversocket, email):
     serversocket.send("Recipient found!".encode('utf-8'))
     serversocket.send(data['users'][recipientEmail]
                       ['public_key'].encode('utf-8'))
-    # TODO: Receive full image from client
     all_data = ""
     try:
         while True:
-            # print("Waiting for data...")
             data = serversocket.recv(1024).decode('utf-8')
-            # print(str(data))
             if not data:
                 print("No more data received.")
                 break
-            # print(f"Received {len(data)} bytes of data.")
             all_data += data
             if all_data.endswith('END'):  # Check for the end signal
                 all_data = all_data[:-3]  # Remove the end signal from the data
-                # print(all_data)
                 print("End of data signal received.")
                 break
     except Exception as e:
         print(f"Error receiving data: {e}")
-
-    # print(all_data)
 
     # split header and image data
     split_message = all_data.split("/////")
     header = split_message[0]
     header_arr = header.split("///")
     message_data = split_message[1]
-    # print(message_data[2], "FLAG")
     print(header_arr[0] + header_arr[1])
 
     # Save the message to the json file
@@ -135,8 +127,6 @@ def serverReceive(serversocket, email):
         "recipient": recipientEmail,
         "timestamp": datetime.datetime.now().isoformat(),
         "senderPublicKey": header_arr[1][header_arr[1].find("-----BEGIN PGP PUBLIC KEY BLOCK-----"):],
-        # TODO: add caption
-        # "caption": caption
         "messageContent": message_data
     })
     
@@ -240,12 +230,10 @@ def login(serversocket):
     nonce = str(random.randint(1, 10000000000000000000000000))
 
     encrypted_nonce = gpg.encrypt(
-        # nonce, import_result.fingerprints[0], always_trust=True)
         nonce, recipients=[emailResponse])
 
     if not encrypted_nonce.ok:
         raise ValueError("Encryption failed:", encrypted_nonce.status)
-   # decrypted_nonce = gpg.decrypt(str(encrypted_nonce), passphrase="passphrase")
     serversocket.send(str(encrypted_nonce).encode('utf-8'))
     encrypted_nonce_client = serversocket.recv(1024).decode()
     decrypted_nonce_client = gpg.decrypt(
@@ -295,8 +283,6 @@ def loginmanagement(authmessage, serversocket):
         serversocket.send("Bye Bye".encode('utf-8'))
         serversocket.close()
 
-# Main method to manage initial connection
-
 
 def clientHandler(serversocket, address):
     message = 'Hello! Thank you for connecting to the server' + \
@@ -324,13 +310,6 @@ def main():
         thread = threading.Thread(
             target=clientHandler, args=(serversocket, address))
         thread.start()
-        # Message sent to client after successful connection
-        #######
-        # message = 'Hello! Thank you for connecting to the server' + \
-        #     "\r\nDo you want to [LOGIN] or [SIGN UP] or [Q]uit?"  # Login or Sign up
-        # serversocket.send(message.encode('utf-8'))
-        # loginmanagement(serversocket.recv(1024).decode(), serversocket)
-
 
 if __name__ == "__main__":
     main()
