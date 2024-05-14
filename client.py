@@ -229,7 +229,7 @@ def receive_message(clientsocket, passphrase):
         "-----BEGIN PGP PUBLIC KEY BLOCK-----"):]
 
     # TODO: Check if we can remove the b'' in a better way
-    message_data = split_message[1][3:-1]
+    message_data = split_message[1]
 
     b64_decode_data = (base64.b64decode(message_data))
     final_message_data = b64_decode_data.decode('utf-8')
@@ -413,7 +413,7 @@ def clientSend(clientsocket, email, passphrase):
         recipient=recipient,
         timestamp=datetime.datetime.now().isoformat(),
         sender_public_key=sender_public_key,
-        message=process_message_for_sending(recipient, image_path, email, caption, passphrase, file_name))
+        message=process_message_for_sending(recipient, image_path, email, caption, passphrase, file_name).decode())
 
     send_message(clientsocket, send_request)
 
