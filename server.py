@@ -161,7 +161,7 @@ def serverSend(serversocket, email):
         else:
             messages.append(message)
     data_to_save = {'messages': messages}
-    #delete_received_messages(filename, messages)
+    delete_received_messages(filename, messages)
     if (waiting_messages == []):
         response = "No messages currently stored for recipient " + email
         print(response)
@@ -290,6 +290,7 @@ def loginmanagement(authmessage, serversocket):
         login(serversocket)  # go to login function
     elif authmessage == "SIGN UP":
         signup(serversocket)  # go to sign in function
+        
     elif authmessage == "Q":
         serversocket.send("Bye Bye".encode('utf-8'))
         serversocket.close()
