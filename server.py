@@ -11,19 +11,18 @@ import io
 import base64
 
 
-
 script_dir = os.path.dirname(os.path.abspath(__file__))
 gpg_home = os.path.join(script_dir, '.gnupg')
 gpg = gnupg.GPG(gnupghome=gpg_home,
                 gpgbinary='C:\\Program Files (x86)\\GnuPG\\bin\\gpg.exe')
 
 
-# client receive 
+# client receive
 RECEIVE_REQUEST = """RECEIVE
 SENDER: {sender}
 RECIPIENT: {recipient}
 TIMESTAMP: {timestamp}
-
+///SENDER_PUBLIC_KEY: {sender_public_key}/////
 {message}"""
 
 
@@ -36,6 +35,15 @@ def load_data(filename):
 def save_data(filename, data):
     with open(filename, 'w') as file:
         json.dump(data, file, indent=4)
+
+
+def delete_received_messages(filename, data):
+    with open(filename, 'w') as file:
+        # Write the initial part of the JSON structure
+        file.write('{"messages": \n')
+        json.dump(data, file, indent=4)
+        # Close the JSON object
+        file.write('}')
 
 
 def accessMenu(serversocket, email):
@@ -59,6 +67,7 @@ def accessMenu(serversocket, email):
         serversocket.send("Bye Bye".encode('utf-8'))
         serversocket.close()
 
+
 def send_message(s, header):
     s.send(header.encode('utf-8'))
     s.send(b'END')
@@ -66,52 +75,48 @@ def send_message(s, header):
 
 def serverReceive(serversocket, email):
     print("CLIENT IS ATTEMPTING TO SEND")
-    serversocket.send("Please enter the email of the recipient:".encode('utf-8'))
+    serversocket.send(
+        "Please enter the email of the recipient:".encode('utf-8'))
     recipientEmail = serversocket.recv(1024).decode().strip()
 
     print("Recipient: " + recipientEmail)
 
     filename = 'users.json'
     data = load_data(filename)
-    
+
     while recipientEmail not in data['users']:
-        serversocket.send("Recipient not found. Please try again.".encode('utf-8'))
+        serversocket.send(
+            "Recipient not found. Please try again.".encode('utf-8'))
         recipientEmail = serversocket.recv(1024).decode().strip()
-        
+
         if recipientEmail == "Q":
             serversocket.close()
             return
 
     serversocket.send("Recipient found!".encode('utf-8'))
-    serversocket.send(data['users'][recipientEmail]['public_key'].encode('utf-8'))
-    #TODO: Receive full image from client
+    serversocket.send(data['users'][recipientEmail]
+                      ['public_key'].encode('utf-8'))
     all_data = ""
     try:
         while True:
-            #print("Waiting for data...")
             data = serversocket.recv(1024).decode('utf-8')
-            # print(str(data))
             if not data:
                 print("No more data received.")
                 break
-            #print(f"Received {len(data)} bytes of data.")
             all_data += data
             if all_data.endswith('END'):  # Check for the end signal
                 all_data = all_data[:-3]  # Remove the end signal from the data
-                #print(all_data)
                 print("End of data signal received.")
                 break
     except Exception as e:
         print(f"Error receiving data: {e}")
 
-    
-    # print(all_data)
-
     # split header and image data
-    split_message = all_data.split('\n\n')
+    split_message = all_data.split("/////")
     header = split_message[0]
+    header_arr = header.split("///")
     message_data = split_message[1]
-    print(header)
+    print(header_arr[0] + header_arr[1])
 
     # Save the message to the json file
     filename = 'messages.json'
@@ -121,27 +126,33 @@ def serverReceive(serversocket, email):
         "sender": email,
         "recipient": recipientEmail,
         "timestamp": datetime.datetime.now().isoformat(),
+        "senderPublicKey": header_arr[1][header_arr[1].find("-----BEGIN PGP PUBLIC KEY BLOCK-----"):],
         "messageContent": message_data
     })
-
+    
     save_data(filename, data)
     print("Message saved")
     serversocket.send("Message sent successfully!".encode('utf-8'))
 
 
-
 def serverSend(serversocket, email):
-    #TODO: Delete message in json after sent
     print("RECEIVING")
     filename = 'messages.json'
     data = load_data(filename)
     waiting_messages = []
+    public_key_arr = []
+    messages = []
     message_senders = []
     for message in data['messages']:
-        if(message['recipient'] == email):
+        if (message['recipient'] == email):
             waiting_messages.append(message['messageContent'])
+            public_key_arr.append(message['senderPublicKey'])
             message_senders.append(message['sender'])
-    if(waiting_messages == []):
+        else:
+            messages.append(message)
+    data_to_save = {'messages': messages}
+    delete_received_messages(filename, messages)
+    if (waiting_messages == []):
         response = "No messages currently stored for recipient " + email
         print(response)
         serversocket.send(response.encode('utf-8'))
@@ -152,21 +163,19 @@ def serverSend(serversocket, email):
             print(serversocket.recv(1024).decode())
             message = waiting_messages[i]
             message_length = len(message)
-            ack = serversocket.recv(1024).decode().strip()  # wait for an acknowledgement
-            print("ACK: ",ack)
+            # wait for an acknowledgement
+            ack = serversocket.recv(1024).decode().strip()
+            print("ACK: ", ack)
             if ack == 'ACK':
-                # serversocket.send(message.encode('utf-8'))
-                # serversocket.send("END".encode('utf-8'))
-                
                 # Send the message
                 send_message(serversocket, RECEIVE_REQUEST.format(
-                    sender = message_senders[i],
-                    recipient = email,
-                    timestamp = datetime.datetime.now().isoformat(),
-                    message = message
+                    sender=message_senders[i],
+                    recipient=email,
+                    timestamp=datetime.datetime.now().isoformat(),
+                    sender_public_key=public_key_arr[i],
+                    message=message
                 ))
 
-                
             print(serversocket.recv(1024).decode())
         complete_message = "All messages stored for the recipient have been sent"
         print(complete_message)
@@ -221,12 +230,10 @@ def login(serversocket):
     nonce = str(random.randint(1, 10000000000000000000000000))
 
     encrypted_nonce = gpg.encrypt(
-        # nonce, import_result.fingerprints[0], always_trust=True)
         nonce, recipients=[emailResponse])
 
     if not encrypted_nonce.ok:
         raise ValueError("Encryption failed:", encrypted_nonce.status)
-   # decrypted_nonce = gpg.decrypt(str(encrypted_nonce), passphrase="passphrase")
     serversocket.send(str(encrypted_nonce).encode('utf-8'))
     encrypted_nonce_client = serversocket.recv(1024).decode()
     decrypted_nonce_client = gpg.decrypt(
@@ -271,12 +278,13 @@ def loginmanagement(authmessage, serversocket):
         login(serversocket)  # go to login function
     elif authmessage == "SIGN UP":
         signup(serversocket)  # go to sign in function
+        
     elif authmessage == "Q":
         serversocket.send("Bye Bye".encode('utf-8'))
         serversocket.close()
 
-# Main method to manage initial connection
-def clientHandler(serversocket,address):
+
+def clientHandler(serversocket, address):
     message = 'Hello! Thank you for connecting to the server' + \
         "\r\nDo you want to [LOGIN] or [SIGN UP] or [Q]uit?"  # Login or Sign up
     serversocket.send(message.encode('utf-8'))
@@ -299,16 +307,9 @@ def main():
         serversocket, address = initialsocket.accept()
 
         print("received connection from " + str(address))
-        thread = threading.Thread(target=clientHandler, args=(serversocket, address))
+        thread = threading.Thread(
+            target=clientHandler, args=(serversocket, address))
         thread.start()
-        # Message sent to client after successful connection
-        #######
-        # message = 'Hello! Thank you for connecting to the server' + \
-        #     "\r\nDo you want to [LOGIN] or [SIGN UP] or [Q]uit?"  # Login or Sign up
-        # serversocket.send(message.encode('utf-8'))
-        # loginmanagement(serversocket.recv(1024).decode(), serversocket)
-
-
 
 if __name__ == "__main__":
     main()
