@@ -52,7 +52,6 @@ def delete_received_messages(filename, data):
 
 
 def create_message_digest(message):
-    print(message[:50] + "..." + message[-50:])
     if isinstance(message, str):
         # Check if the message is in byte form - if not, encode it
         message = message.encode('utf-8')
@@ -135,16 +134,12 @@ def serverReceive(serversocket, email):
     # Save the message to the json file
     filename = 'messages.json'
     data = load_data(filename)
-    encrypted_message_digest = create_message_digest(message_data)
-    signed_message = gpg.sign(encrypted_message_digest,
-                              passphrase=CApassphrase, clearsign=True)
 
     data['messages'].append({
         "sender": email,
         "recipient": recipientEmail,
         "timestamp": datetime.datetime.now().isoformat(),
         "senderPublicKey": header_arr[1][header_arr[1].find("-----BEGIN PGP PUBLIC KEY BLOCK-----"):],
-        "CASignature": str(signed_message),
         "messageContent": message_data
     })
 
@@ -160,14 +155,14 @@ def serverSend(serversocket, email):
     waiting_messages = []
     public_key_arr = []
     messages = []
-    casignature_arr = []
+    #casignature_arr = []
     message_senders = []
     for message in data['messages']:
         if (message['recipient'] == email):
             waiting_messages.append(message['messageContent'])
             public_key_arr.append(message['senderPublicKey'])
             message_senders.append(message['sender'])
-            casignature_arr.append(message['CASignature'])
+            #casignature_arr.append(message['CASignature'])
         else:
             messages.append(message)
     data_to_save = {'messages': messages}
@@ -183,6 +178,10 @@ def serverSend(serversocket, email):
             print(serversocket.recv(1024).decode())
             serversocket.send("SEND ACK".encode('utf-8'))
             message = waiting_messages[i]
+            encrypted_message_digest = create_message_digest(message)
+            message_for_signing = datetime.datetime.now().isoformat() + "\n" + encrypted_message_digest
+            ca_signed_message = gpg.sign(message_for_signing,
+                              passphrase=CApassphrase, clearsign=True)
             message_length = len(message)
             # wait for an acknowledgement
             ack = serversocket.recv(1024).decode().strip()
@@ -194,7 +193,7 @@ def serverSend(serversocket, email):
                     recipient=email,
                     timestamp=datetime.datetime.now().isoformat(),
                     sender_public_key=public_key_arr[i],
-                    CAsignature=casignature_arr[i],
+                    CAsignature=ca_signed_message,
                     message=message
                 ))
 
@@ -203,7 +202,6 @@ def serverSend(serversocket, email):
         print(complete_message)
         serversocket.send(complete_message.encode('utf-8'))
         print(serversocket.recv(1024).decode())
-
 
 def register_user(username, public_key):
     filename = 'users.json'

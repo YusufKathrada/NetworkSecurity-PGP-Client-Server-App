@@ -238,20 +238,22 @@ def receive_message(clientsocket, passphrase):
         "-----BEGIN PGP PUBLIC KEY BLOCK-----"):]
     ca_signature = header_arr[2][header_arr[2].find(
         "-----BEGIN PGP SIGNED MESSAGE-----"):]
-    # print("CA SIGNATURE >>>>", ca_signature)
-
+    search_string = "\n-----BEGIN PGP SIGNATURE-----"
+    index = ca_signature.find(search_string)
+    original_timestamp = ca_signature[(index-92): (index-66)]
+    original_timestamp = datetime.datetime.fromisoformat(original_timestamp)
+    timestamp_now = datetime.datetime.now()
+    time_difference = timestamp_now - original_timestamp
+    seconds_difference = time_difference.total_seconds()
+    time_validity = seconds_difference <= 10
     message_data = split_message[1]
-    # print(message_data[:50] + "..." + message_data[-50:])
     signature_validity = verifySignature(ca_signature, message_data)
-    # signature_validity = gpg.verify(ca_signature.encode())
-    # print("FIRST VALIDITY:", signature_validity)
     b64_decode_data = (base64.b64decode(message_data))
     final_message_data = b64_decode_data.decode('utf-8')
 
     safety, messageArray = process_message(
         final_message_data, passphrase, header, sender_public_key)
-    # print("SAFETY:", safety)
-    if safety and signature_validity is True:
+    if safety and signature_validity and time_validity is True:
         filename = messageArray[0]
         timestamp = messageArray[1]
         caption = messageArray[2]
@@ -342,11 +344,9 @@ def process_message(d, passphrase, header, sender_public_key):
 # Function that verifies authenticity of the sender and message integrity
 def verifySignature(signed_digest, image_data):
     hashCheck = create_message_digest(image_data)
-    # print("HASHCHECK:", hashCheck)
     search_string = "\n-----BEGIN PGP SIGNATURE-----"
     index = signed_digest.find(search_string)
     original_message_digest = signed_digest[(index-65): (index-1)]
-    # print("ORIGINAL:" + original_message_digest)
     verification_result = gpg.verify(
         signed_digest.encode())
     if (verification_result.valid and original_message_digest == hashCheck):
@@ -409,7 +409,7 @@ def clientSend(clientsocket, email, passphrase):
             recipientValidityResponse = clientsocket.recv(1024).decode()
 
     recipientPublicKey = clientsocket.recv(
-        1024).decode()  # ? <-----  WHEN WE GONNA USE THIS?
+        1024).decode()
     sender_public_key = gpg.export_keys(email)
     image_path = input("Enter the path to the image you wish to send: \n")
     file_name = input("Enter the name you wish to send the image as: \n")
