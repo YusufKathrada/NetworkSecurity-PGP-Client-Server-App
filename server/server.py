@@ -9,7 +9,9 @@ import sys
 from PIL import Image
 import io
 import base64
+import hashlib
 
+CApassphrase = "U0xNVEFBMDA3TVNMR1JFMDAxS1RIWVVTMDAx"
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 gpg_home = os.path.join(script_dir, '.gnupg')
@@ -22,7 +24,8 @@ RECEIVE_REQUEST = """RECEIVE
 SENDER: {sender}
 RECIPIENT: {recipient}
 TIMESTAMP: {timestamp}
-///SENDER_PUBLIC_KEY: {sender_public_key}/////
+///SENDER_PUBLIC_KEY: {sender_public_key}
+///CASIGNATURE: {CAsignature}/////
 {message}"""
 
 
@@ -44,6 +47,17 @@ def delete_received_messages(filename, data):
         json.dump(data, file, indent=4)
         # Close the JSON object
         file.write('}')
+
+# Function that creates the message digest
+
+
+def create_message_digest(message):
+    print(message[:50] + "..." + message[-50:])
+    if isinstance(message, str):
+        # Check if the message is in byte form - if not, encode it
+        message = message.encode('utf-8')
+    digest = hashlib.sha256(message).hexdigest()
+    return digest
 
 
 def accessMenu(serversocket, email):
@@ -121,15 +135,19 @@ def serverReceive(serversocket, email):
     # Save the message to the json file
     filename = 'messages.json'
     data = load_data(filename)
+    encrypted_message_digest = create_message_digest(message_data)
+    signed_message = gpg.sign(encrypted_message_digest,
+                              passphrase=CApassphrase, clearsign=True)
 
     data['messages'].append({
         "sender": email,
         "recipient": recipientEmail,
         "timestamp": datetime.datetime.now().isoformat(),
         "senderPublicKey": header_arr[1][header_arr[1].find("-----BEGIN PGP PUBLIC KEY BLOCK-----"):],
+        "CASignature": str(signed_message),
         "messageContent": message_data
     })
-    
+
     save_data(filename, data)
     print("Message saved")
     serversocket.send("Message sent successfully!".encode('utf-8'))
@@ -142,12 +160,14 @@ def serverSend(serversocket, email):
     waiting_messages = []
     public_key_arr = []
     messages = []
+    casignature_arr = []
     message_senders = []
     for message in data['messages']:
         if (message['recipient'] == email):
             waiting_messages.append(message['messageContent'])
             public_key_arr.append(message['senderPublicKey'])
             message_senders.append(message['sender'])
+            casignature_arr.append(message['CASignature'])
         else:
             messages.append(message)
     data_to_save = {'messages': messages}
@@ -161,6 +181,7 @@ def serverSend(serversocket, email):
             print("Sending message number " + str(i))
             serversocket.send(str(i).encode('utf-8'))
             print(serversocket.recv(1024).decode())
+            serversocket.send("SEND ACK".encode('utf-8'))
             message = waiting_messages[i]
             message_length = len(message)
             # wait for an acknowledgement
@@ -173,6 +194,7 @@ def serverSend(serversocket, email):
                     recipient=email,
                     timestamp=datetime.datetime.now().isoformat(),
                     sender_public_key=public_key_arr[i],
+                    CAsignature=casignature_arr[i],
                     message=message
                 ))
 
@@ -186,7 +208,6 @@ def serverSend(serversocket, email):
 def register_user(username, public_key):
     filename = 'users.json'
     data = load_data(filename)
-    CApassphrase = "passphrase"
     if username not in data['users']:
         certificateUnprotected = username + "///" + public_key
         certificateProtected = gpg.sign(
@@ -247,7 +268,7 @@ def login(serversocket):
 
     encrypted_nonce_client = serversocket.recv(1024).decode()
     decrypted_nonce_client = gpg.decrypt(
-        encrypted_nonce_client, passphrase="U0xNVEFBMDA3TVNMR1JFMDAxS1RIWVVTMDAx", always_trust=True)
+        encrypted_nonce_client, passphrase=CApassphrase, always_trust=True)
     print(str(decrypted_nonce_client))
     if str(decrypted_nonce_client) == nonce:
         print("LOGIN SUCCESSFUL")
@@ -288,7 +309,7 @@ def loginmanagement(authmessage, serversocket):
         login(serversocket)  # go to login function
     elif authmessage == "SIGN UP":
         signup(serversocket)  # go to sign in function
-        
+
     elif authmessage == "Q":
         serversocket.send("Bye Bye".encode('utf-8'))
         serversocket.close()
@@ -313,6 +334,7 @@ def main():
     initialsocket.listen(3)
 
     while True:
+        print("Server is listening for connections")
         # Starting the connection
         serversocket, address = initialsocket.accept()
 
@@ -320,6 +342,7 @@ def main():
         thread = threading.Thread(
             target=clientHandler, args=(serversocket, address))
         thread.start()
+
 
 if __name__ == "__main__":
     main()

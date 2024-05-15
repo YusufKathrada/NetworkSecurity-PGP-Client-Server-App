@@ -54,7 +54,8 @@ SIGNATURE_AND_MESSAGE:
 {signature_and_message}"""
 
 # Function that decrypts the session key
- 
+
+
 def session_decrypt(payload, nonce, key):
     bytekey = key.encode('latin1').decode('unicode_escape').encode('latin1')
     bytenonce = nonce.encode('latin1').decode(
@@ -64,6 +65,8 @@ def session_decrypt(payload, nonce, key):
     return decrypted_payload_b64
 
 # Function that generates the session key and non
+
+
 def generate_session_key(data):
     key = get_random_bytes(16)
     cipher = AES.new(key, AES.MODE_CTR)
@@ -78,7 +81,9 @@ def send_message(s, header):
     s.send(header.encode('utf-8'))
     s.send(b'END')
 
-# Function that generates the initial private and public key pair for a new user on sign 
+# Function that generates the initial private and public key pair for a new user on sign
+
+
 def generate_key_pair(email, passphrase):
     # inputs to generate the keys
     input_data = gpg.gen_key_input(
@@ -132,14 +137,19 @@ def decompress(message):
 
 # Function that encodes the image in base 64
 def encode_image(image_path, output_format='JPEG'):
-    # Load the image
-    img = Image.open(image_path)
+    try:
+        # Load the image
+        img = Image.open(image_path)
+        img_buffer = io.BytesIO()
+        img.save(img_buffer, format=output_format, optimize=True)
+        # Base64 encode
+        encoded_string = base64.b64encode(img_buffer.getvalue())
+        return encoded_string
+
+    except Exception as e:
+        print(f"Failed to load image: {e}")
+        exit()
     # Convert and compress the image
-    img_buffer = io.BytesIO()
-    img.save(img_buffer, format=output_format, optimize=True)
-    # Base64 encode
-    encoded_string = base64.b64encode(img_buffer.getvalue())
-    return encoded_string
 
 
 # Function that fixes padding of encoded data
@@ -152,12 +162,13 @@ def fix_padding(data):
     return data
 
 
-# Function that processes the message for sending 
+# Function that processes the message for sending
 def process_message_for_sending(recipient_email, image_path, sender_email, caption, passphrase, image_name):
     timestamp = datetime.datetime.now().isoformat()
-    message_digest = create_message_digest(encode_image(image_path))
+    image_data = encode_image(image_path)
+    message_digest = create_message_digest(image_data)
     filename = image_name
-    image_data = encode_image(image_path).decode()
+    image_data = image_data.decode()
     # sign message digest with sender's private key
     private_keys = gpg.list_keys(secret=True)
     key_id = None
@@ -196,7 +207,6 @@ def process_message_for_sending(recipient_email, image_path, sender_email, capti
 
         signature_and_message=encrypted_comp_signature_and_message
     )
-    # TODO: remove encode here
     return base64.b64encode(pgp_message.encode('utf-8'))
 
 
@@ -220,33 +230,40 @@ def receive_message(clientsocket, passphrase):
                 break
     except Exception as e:
         print(f"Error receiving data: {e}")
-        
-    split_message = all_data.split("/////")
+
+    split_message = all_data.split("/////\n")
     header = split_message[0]
     header_arr = header.split("///")
     sender_public_key = header_arr[1][header_arr[1].find(
         "-----BEGIN PGP PUBLIC KEY BLOCK-----"):]
+    ca_signature = header_arr[2][header_arr[2].find(
+        "-----BEGIN PGP SIGNED MESSAGE-----"):]
+    # print("CA SIGNATURE >>>>", ca_signature)
 
     message_data = split_message[1]
-
+    # print(message_data[:50] + "..." + message_data[-50:])
+    signature_validity = verifySignature(ca_signature, message_data)
+    # signature_validity = gpg.verify(ca_signature.encode())
+    # print("FIRST VALIDITY:", signature_validity)
     b64_decode_data = (base64.b64decode(message_data))
     final_message_data = b64_decode_data.decode('utf-8')
-    
+
     safety, messageArray = process_message(
         final_message_data, passphrase, header, sender_public_key)
-    if safety is True:
+    # print("SAFETY:", safety)
+    if safety and signature_validity is True:
         filename = messageArray[0]
         timestamp = messageArray[1]
         caption = messageArray[2]
         image_data = messageArray[3]
-        #process image data
-        process_image(image_data,filename,timestamp,caption)
+        # process image data
+        process_image(image_data, filename, timestamp, caption)
         return True, header
     else:
         return False, ""
-    
 
 
+#  Function that processes the message received from the server
 def process_message(d, passphrase, header, sender_public_key):
     sender = header[header.find("SENDER: ")+8:header.find("\nRECIPIENT")]
 
@@ -278,9 +295,11 @@ def process_message(d, passphrase, header, sender_public_key):
         signature_and_message_component, nonce, key)
 
     # decompress the decrypted signature and message
-    decompressed_signature_and_message = decompress(decrypted_signature_and_message)
+    decompressed_signature_and_message = decompress(
+        decrypted_signature_and_message)
 
-    decompressed_signature_and_message = decompressed_signature_and_message.decode().split('\n\nMESSAGE: ')
+    decompressed_signature_and_message = decompressed_signature_and_message.decode(
+    ).split('\n\nMESSAGE: ')
     signature_component = decompressed_signature_and_message[0]
 
     signature_array = signature_component.split("///")
@@ -294,15 +313,15 @@ def process_message(d, passphrase, header, sender_public_key):
     caption = messageArray[2]
     image_data = messageArray[3]
     verification = verifySignature(
-        signed_digest, sender, image_data, sender_public_key)
-    
-    if(verification is True):
+        signed_digest, image_data)
+
+    if (verification is True):
         return True, messageArray
     return False, []
 
 ####
 ####
-#### FORMAT FOR SIGNATURE
+# FORMAT FOR SIGNATURE
 ####
 ####
 
@@ -319,15 +338,18 @@ def process_message(d, passphrase, header, sender_public_key):
 # =y6kj
 # -----END PGP SIGNATURE-----
 
+
 # Function that verifies authenticity of the sender and message integrity
-def verifySignature(signed_digest, sender, image_data, sender_public_key):
+def verifySignature(signed_digest, image_data):
     hashCheck = create_message_digest(image_data)
+    # print("HASHCHECK:", hashCheck)
     search_string = "\n-----BEGIN PGP SIGNATURE-----"
     index = signed_digest.find(search_string)
     original_message_digest = signed_digest[(index-65): (index-1)]
+    # print("ORIGINAL:" + original_message_digest)
     verification_result = gpg.verify(
         signed_digest.encode())
-    if(verification_result.valid and original_message_digest == hashCheck):
+    if (verification_result.valid and original_message_digest == hashCheck):
         return True
     print("STATUS:", verification_result.status)
     print("VALIDITY:", verification_result.valid)
@@ -353,7 +375,7 @@ def process_image(image_data, filename, timestamp, caption):
     try:
         print("Saving image...")
         image = Image.open(io.BytesIO(image_data))
-    
+
         # the filename should be set to the filename of the image but if that name matches an existing file, user can enter their own name
         if os.path.exists(f"./received_images/{filename}.jpg"):
             print("Image with this name already exists.")
@@ -365,7 +387,6 @@ def process_image(image_data, filename, timestamp, caption):
         image.save(b"./received_images/" +
                    filename.encode('utf-8'), format='JPEG')
         print("Image saved successfully.")
-        #print("============================================")
     except Exception as e:
         print(f"Failed to save image: {e}")
 
@@ -398,8 +419,8 @@ def clientSend(clientsocket, email, passphrase):
         with Image.open(image_path) as img:
             img.verify()
             print("Image found. Processing...")
-    except FileNotFoundError:
-        print("Image not found. Please try again.")
+    except Exception as e:
+        print(f"Image not found: {e}")
         image_path = input("Enter the path to the image you wish to send: \n")
         file_name = input("Enter the name you wish to send the image as: \n")
 
@@ -428,29 +449,34 @@ def clientReceive(clientsocket, email, passphrase):
         while (not (response.strip().startswith("All messages stored"))):
             clientsocket.send(
                 "Please send any messages stored".encode('utf-8'))
-            print("Message " + str(eval(response)+1) + ": \n---------------------------- ")
+            clientsocket.recv(1024).decode()
+            print("Message " + str(eval(response)+1) +
+                  ": \n---------------------------- ")
 
             clientsocket.send('ACK'.encode('utf-8'))  # send acknowledgement
 
             validity, header = receive_message(clientsocket, passphrase)
-            if(validity is False):
+            if (validity is False):
                 print("MESSAGE VERIFICATION FAILED. DELETING MESSAGE.")
-                clientsocket.send("Are there any other messages?".encode('utf-8'))
+                clientsocket.send(
+                    "Are there any other messages?".encode('utf-8'))
                 response = clientsocket.recv(1024).decode()
             else:
                 header_split = (header.split('\n'))  # splice from space
                 # change response to be sender retrieved from message header
                 print("Sender is: " + (header_split[1])[8:])
 
-                print("Image has been received.\n============================================")
-                clientsocket.send("Are there any other messages?".encode('utf-8'))
+                print(
+                    "Image has been received.\n============================================")
+                clientsocket.send(
+                    "Are there any other messages?".encode('utf-8'))
                 response = clientsocket.recv(1024).decode()
         print(response)
         # TODO: More formal header possibly
         clientsocket.send("All messages received".encode('utf-8'))
 
 
-# Function to controls user requests 
+# Function to controls user requests including sending and receiving messages
 def accessManagement(clientsocket, email, passphrase):
     print(clientsocket.recv(1024).decode())
     menuOption = input()
@@ -473,7 +499,7 @@ def accessManagement(clientsocket, email, passphrase):
         accessManagement(clientsocket, email, passphrase)
 
 
-# Funct
+# Function that manages the user menu inlcuding sign up, login and quitting
 def userMenu(clientsocket):
     while True:
         message = clientsocket.recv(1024)
@@ -486,9 +512,11 @@ def userMenu(clientsocket):
             email = input("Please enter your email\n")
             while flag is True:
                 if "@" not in email:
-                    email = input("Invalid email. Please enter a valid email\n")
+                    email = input(
+                        "Invalid email. Please enter a valid email\n")
                 elif "." not in email[email.find("@"):]:
-                    email = input("Invalid email. Please enter a valid email\n")
+                    email = input(
+                        "Invalid email. Please enter a valid email\n")
                 else:
                     flag = False
             clientsocket.send(email.encode('utf-8'))
@@ -500,7 +528,8 @@ def userMenu(clientsocket):
             # generate key pair
             public_key = generate_key_pair(email, passphrase)
             clientsocket.send(public_key.encode('utf-8'))
-            print("SIGN UP SUCCESSFUL! Please reconnect and LOGIN with your new credentials")
+            print(
+                "SIGN UP SUCCESSFUL! Please reconnect and LOGIN with your new credentials")
             clientsocket.close()
             return
 
@@ -522,7 +551,7 @@ def userMenu(clientsocket):
 
             # Send a response to the server (please sned public key)
             clientsocket.send("Please send public key".encode('utf-8'))
-            #Receieve CA public key here and import to keyring
+            # Receieve CA public key here and import to keyring
             ca_public_key = clientsocket.recv(1024).decode()
             gpg.import_keys(ca_public_key)
 
