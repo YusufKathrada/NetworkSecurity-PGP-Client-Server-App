@@ -170,7 +170,7 @@ def serverSend(serversocket, email):
         else:
             messages.append(message)
     data_to_save = {'messages': messages}
-    #delete_received_messages(filename, messages)
+    delete_received_messages(filename, messages)
     if (waiting_messages == []):
         response = "No messages currently stored for recipient " + email
         print(response)
@@ -250,12 +250,11 @@ def login(serversocket):
 
     if not import_result.counts:
         raise ValueError("Public key import failed.")
-
+    
     nonce = str(random.randint(1, 10000000000000000000000000))
-
     encrypted_nonce = gpg.encrypt(
         nonce, recipients=[emailResponse], always_trust=True)
-
+    
     if not encrypted_nonce.ok:
         raise ValueError("Encryption failed:", encrypted_nonce.status)
     serversocket.send(str(encrypted_nonce).encode('utf-8'))
@@ -271,7 +270,6 @@ def login(serversocket):
     encrypted_nonce_client = serversocket.recv(1024).decode()
     decrypted_nonce_client = gpg.decrypt(
         encrypted_nonce_client, passphrase=CApassphrase, always_trust=True)
-    print(str(decrypted_nonce_client))
     if str(decrypted_nonce_client) == nonce:
         print("LOGIN SUCCESSFUL")
         loginSuccessMsg = "Login Success"

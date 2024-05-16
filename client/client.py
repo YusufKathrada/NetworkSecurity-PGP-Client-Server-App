@@ -549,11 +549,16 @@ def userMenu(clientsocket):
 
         elif option == "LOGIN":
             email = input("Please enter your email\n")
+            while not email.strip():
+                print("Email cannot be empty. Please try again.")
+                email = input("Please enter your email\n")
             clientsocket.send(email.encode('utf-8'))
             emailResponse = clientsocket.recv(1024).decode()
             while emailResponse != "checking identity...":
-                email = input(
-                    "This user does not exist, please resubmit a valid email:\n")
+                email = input("This user does not exist, please resubmit a valid email:\n")
+                while not email.strip():
+                    print("Email cannot be empty. Please try again.")
+                    email = input("Please enter your email\n")
                 clientsocket.send(email.encode('utf-8'))
                 emailResponse = clientsocket.recv(1024).decode()
             encryptedNonceToClient = clientsocket.recv(1024).decode()
@@ -561,8 +566,6 @@ def userMenu(clientsocket):
 
             decryptedNonceClient = gpg.decrypt(
                 encryptedNonceToClient, passphrase=passphraseClient, always_trust=True)
-            print(str(decryptedNonceClient))
-
             # Send a response to the server (please send public key)
             clientsocket.send("Please send public key".encode('utf-8'))
             # Receieve CA public key here and import to keyring

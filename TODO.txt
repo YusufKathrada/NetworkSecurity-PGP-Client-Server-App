@@ -7,6 +7,10 @@ Report:
     - explain clear signing
     - explain why recipient public key isn't needed for encryption as we can use their emails to encrypt such that only the recipient can decrypt it with their private key
 
+ Key Management:
+        - Show .gnupg key generation
+    
+
 Functional testing:
     - Sign up -> must be email
     - Sign up -> cant be an existing user
@@ -15,13 +19,9 @@ Functional testing:
     - SEND -> existing users only
 
     
-Security Testing:
-    - Login -> Nonce comparison
-        - user is sent their certificate
-    Key Management:
-        - Show .gnupg key generation
-    
-
+Security Testing: (* means done)
+    - Login -> Nonce comparison*
+   
     Penetration testing:
     Man in the middle:
         - on client receive -> Intercept message, change it, and show how message verification fails
