@@ -11,6 +11,7 @@ from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 from os import urandom
 
+client_certificate = ""
 
 # Get the directory of the script
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -28,7 +29,7 @@ SEND_REQUEST = """SEND
 SENDER: {sender}
 RECIPIENT: {recipient}
 TIMESTAMP: {timestamp}
-///SENDER_PUBLIC_KEY: {sender_public_key}/////
+///SENDER_CERTIFICATE: {sender_certificate}/////
 {message}"""
 
 SIGNATURE_AND_MESSAGE = """
@@ -234,10 +235,20 @@ def receive_message(clientsocket, passphrase):
     split_message = all_data.split("/////\n")
     header = split_message[0]
     header_arr = header.split("///")
-    sender_public_key = header_arr[1][header_arr[1].find(
-        "-----BEGIN PGP PUBLIC KEY BLOCK-----"):]
-    ca_signature = header_arr[2][header_arr[2].find(
+    #! Changes here, remove public key and substitute with sender certificate
+    # sender_public_key = header_arr[1][header_arr[1].find(
+    #     "-----BEGIN PGP PUBLIC KEY BLOCK-----"):]
+    sender_certificate = header_arr[1][header_arr[1].find("-----BEGIN PGP SIGNED MESSAGE-----"):] + "///" + header_arr[2]
+    sender_public_key = header_arr[2][:header[2].find("\n-----BEGIN PGP SIGNATURE-----")]
+    certificate_validity = gpg.verify(sender_certificate)
+    # print("Sender certiciate: " + str(sender_certificate))
+    # print("Sender public key: " + str(sender_public_key))
+    # print(certificate_validity.valid)
+    ca_signature = header_arr[3][header_arr[3].find(
         "-----BEGIN PGP SIGNED MESSAGE-----"):]
+
+
+
     search_string = "\n-----BEGIN PGP SIGNATURE-----"
     index = ca_signature.find(search_string)
     original_timestamp = ca_signature[(index-92): (index-66)]
@@ -253,7 +264,8 @@ def receive_message(clientsocket, passphrase):
 
     safety, messageArray = process_message(
         final_message_data, passphrase, header, sender_public_key)
-    if safety and signature_validity and time_validity is True:
+    if safety and signature_validity and time_validity and certificate_validity.valid is True:
+        gpg.import_keys(sender_public_key)
         filename = messageArray[0]
         timestamp = messageArray[1]
         caption = messageArray[2]
@@ -393,6 +405,7 @@ def process_image(image_data, filename, timestamp, caption):
 
 # Function that manages a client sending a message
 def clientSend(clientsocket, email, passphrase):
+    global client_certificate
     print(clientsocket.recv(1024).decode())
     recipient = input()
     clientsocket.send(recipient.encode('utf-8'))
@@ -410,6 +423,7 @@ def clientSend(clientsocket, email, passphrase):
 
     recipientPublicKey = clientsocket.recv(
         1024).decode()
+    
     sender_public_key = gpg.export_keys(email)
     image_path = input("Enter the path to the image you wish to send: \n")
     file_name = input("Enter the name you wish to send the image as: \n")
@@ -430,7 +444,7 @@ def clientSend(clientsocket, email, passphrase):
         sender=email,
         recipient=recipient,
         timestamp=datetime.datetime.now().isoformat(),
-        sender_public_key=sender_public_key,
+        sender_certificate=client_certificate,
         message=process_message_for_sending(recipient, image_path, email, caption, passphrase, file_name).decode())
 
     send_message(clientsocket, send_request)
@@ -472,7 +486,6 @@ def clientReceive(clientsocket, email, passphrase):
                     "Are there any other messages?".encode('utf-8'))
                 response = clientsocket.recv(1024).decode()
         print(response)
-        # TODO: More formal header possibly
         clientsocket.send("All messages received".encode('utf-8'))
 
 
@@ -501,6 +514,7 @@ def accessManagement(clientsocket, email, passphrase):
 
 # Function that manages the user menu inlcuding sign up, login and quitting
 def userMenu(clientsocket):
+    global client_certificate
     while True:
         message = clientsocket.recv(1024)
         print(message.decode('utf-8'))
@@ -549,7 +563,7 @@ def userMenu(clientsocket):
                 encryptedNonceToClient, passphrase=passphraseClient, always_trust=True)
             print(str(decryptedNonceClient))
 
-            # Send a response to the server (please sned public key)
+            # Send a response to the server (please send public key)
             clientsocket.send("Please send public key".encode('utf-8'))
             # Receieve CA public key here and import to keyring
             ca_public_key = clientsocket.recv(1024).decode()
@@ -564,6 +578,9 @@ def userMenu(clientsocket):
                 print("Incorrect Passphrase or Public Key. Disconnecting.")
                 exit()
             else:
+                clientsocket.send("Please send the client certificate".encode('utf-8'))
+                client_certificate = clientsocket.recv(1024).decode()
+                # print("CLIENT CERTIFICATE: " + str(client_certificate))
                 accessManagement(clientsocket, email, passphraseClient)
 
         elif option == "Q":

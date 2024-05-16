@@ -5,6 +5,7 @@ updated todo:
 
 Report:
     - explain clear signing
+    - explain why recipient public key isn't needed for encryption as we can use their emails to encrypt such that only the recipient can decrypt it with their private key
 
 Functional testing:
     - Sign up -> must be email
@@ -16,11 +17,25 @@ Functional testing:
     
 Security Testing:
     - Login -> Nonce comparison
+        - user is sent their certificate
     Key Management:
         - Show .gnupg key generation
     
+
+    Penetration testing:
+    Man in the middle:
+        - on client receive -> Intercept message, change it, and show how message verification fails
+        - on send -> bad guy changes mesage content (wont work as will need senders private key to sign message digest) verification failed
+    
+    Replay:
+        - Timestamp are stale (use old CA signature)
+
     Certificate and Signature Validation:
         - Certification validation for not just user certificates but for signing as well
+        - verify signature function
+        - 1. certificate when client receives, 
+        - 2. CA certificate in header of server send (was actually CA), 
+        - 3. verify signed message digest (was signed by the sender)
 
     Cryptographic Testing: 
     SEND:
@@ -33,5 +48,3 @@ Security Testing:
         - show base 64 encoding of whole message
     RECEIVE:
         - reverse the sending process
-        
-

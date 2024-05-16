@@ -11,6 +11,7 @@ import io
 import base64
 import hashlib
 
+
 CApassphrase = "U0xNVEFBMDA3TVNMR1JFMDAxS1RIWVVTMDAx"
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -24,7 +25,7 @@ RECEIVE_REQUEST = """RECEIVE
 SENDER: {sender}
 RECIPIENT: {recipient}
 TIMESTAMP: {timestamp}
-///SENDER_PUBLIC_KEY: {sender_public_key}
+///SENDER_CERTIFICATE: {sender_certificate}
 ///CASIGNATURE: {CAsignature}/////
 {message}"""
 
@@ -128,6 +129,9 @@ def serverReceive(serversocket, email):
     split_message = all_data.split("/////")
     header = split_message[0]
     header_arr = header.split("///")
+    search_string = "SENDER_CERTIFICATE: "
+    index = header_arr[1].find(search_string)
+    sender_certificate = header_arr[1][(index + len(search_string)):]
     message_data = split_message[1]
     print(header_arr[0] + header_arr[1])
 
@@ -139,7 +143,7 @@ def serverReceive(serversocket, email):
         "sender": email,
         "recipient": recipientEmail,
         "timestamp": datetime.datetime.now().isoformat(),
-        "senderPublicKey": header_arr[1][header_arr[1].find("-----BEGIN PGP PUBLIC KEY BLOCK-----"):],
+        "senderCertificate": (sender_certificate + "///" + header_arr[2]),
         "messageContent": message_data
     })
 
@@ -153,20 +157,20 @@ def serverSend(serversocket, email):
     filename = 'messages.json'
     data = load_data(filename)
     waiting_messages = []
-    public_key_arr = []
+    sender_certificate_arr = []
     messages = []
     #casignature_arr = []
     message_senders = []
     for message in data['messages']:
         if (message['recipient'] == email):
             waiting_messages.append(message['messageContent'])
-            public_key_arr.append(message['senderPublicKey'])
+            sender_certificate_arr.append(message['senderCertificate'])
             message_senders.append(message['sender'])
             #casignature_arr.append(message['CASignature'])
         else:
             messages.append(message)
     data_to_save = {'messages': messages}
-    delete_received_messages(filename, messages)
+    #delete_received_messages(filename, messages)
     if (waiting_messages == []):
         response = "No messages currently stored for recipient " + email
         print(response)
@@ -192,7 +196,7 @@ def serverSend(serversocket, email):
                     sender=message_senders[i],
                     recipient=email,
                     timestamp=datetime.datetime.now().isoformat(),
-                    sender_public_key=public_key_arr[i],
+                    sender_certificate=sender_certificate_arr[i],
                     CAsignature=ca_signed_message,
                     message=message
                 ))
@@ -256,7 +260,7 @@ def login(serversocket):
         raise ValueError("Encryption failed:", encrypted_nonce.status)
     serversocket.send(str(encrypted_nonce).encode('utf-8'))
 
-    # Receives "please sned public key"
+    # Receives "please send public key"
     serversocket.recv(1024).decode()
 
     # access CA public key.asc file and send to client
@@ -272,6 +276,11 @@ def login(serversocket):
         print("LOGIN SUCCESSFUL")
         loginSuccessMsg = "Login Success"
         serversocket.send(loginSuccessMsg.encode('utf-8'))
+        # receive "please send certificate"
+        serversocket.recv(1024).decode()
+        client_certificate = data['users'][emailResponse]['certificate']
+        # send certificate
+        serversocket.send(client_certificate.encode('utf-8'))
         accessMenu(serversocket, emailResponse)
     else:
         print("FAILURE: NONCES DO NOT MATCH")
