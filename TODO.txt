@@ -12,39 +12,37 @@ Report:
     
 
 Functional testing:
-    - Sign up -> must be email
-    - Sign up -> cant be an existing user
-    - Login -> must be registered
-    - Login -> incorrect passphrase
-    - SEND -> existing users only
+    - Sign up -> must be email*
+    - Sign up -> cant be an existing user*
+    - Login -> must be registered*
+    - Login -> incorrect passphrase**technically shown 
+    - SEND -> existing users only*
+    - SEND -> image not found
 
     
 Security Testing: (* means done)
     - Login -> Nonce comparison*
    
     Penetration testing:
-    Man in the middle:
-        - on client receive -> Intercept message, change it, and show how message verification fails
-        - on send -> bad guy changes mesage content (wont work as will need senders private key to sign message digest) verification failed
+    Man in the middle*:
+        - on client receive -> Intercept message, change it, and show how message verification fails*
+        - on send -> bad guy changes mesage content (wont work as will need senders private key to sign message digest) verification failed*
     
-    Replay:
+    Replay*:
         - Timestamp are stale (use old CA signature)
 
-    Certificate and Signature Validation:
+    Certificate and Signature Validation*:
         - Certification validation for not just user certificates but for signing as well
         - verify signature function
-        - 1. certificate when client receives, 
-        - 2. CA certificate in header of server send (was actually CA), 
-        - 3. verify signed message digest (was signed by the sender)
+        - 1. certificate when client receives,* 
+        - 2. CA certificate in header of server send (was actually CA), *
+        - 3. verify signed message digest (was signed by the sender)*
 
     Cryptographic Testing: 
     SEND:
-        - base encoding of image
-        - generate session key
-        - message digestion creation and signing
-        - test compression: print payload before and after compression then decompressed 
-        - encrypt payload with session key
-        - encrypt session key with recipient public key
-        - show base 64 encoding of whole message
-    RECEIVE:
-        - reverse the sending process
+        - base encoding of image*
+        - generate session key*
+        - test compression: print payload before and after compression then decompressed*
+        - encrypt payload with session key*
+        - encrypt session key with recipient public key*
+        - show base 64 encoding of whole message*
