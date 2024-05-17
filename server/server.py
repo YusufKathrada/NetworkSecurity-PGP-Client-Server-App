@@ -11,7 +11,6 @@ import io
 import base64
 import hashlib
 
-
 CApassphrase = "U0xNVEFBMDA3TVNMR1JFMDAxS1RIWVVTMDAx"
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -29,18 +28,18 @@ TIMESTAMP: {timestamp}
 ///CASIGNATURE: {CAsignature}/////
 {message}"""
 
-
+# Function that loads data from a JSON file
 def load_data(filename):
     with open(filename, 'r') as file:
         data = json.load(file)
     return data
 
-
+# Function that saves data to a JSON file
 def save_data(filename, data):
     with open(filename, 'w') as file:
         json.dump(data, file, indent=4)
 
-
+# Function that deletes received messages from the JSON file
 def delete_received_messages(filename, data):
     with open(filename, 'w') as file:
         # Write the initial part of the JSON structure
@@ -49,9 +48,7 @@ def delete_received_messages(filename, data):
         # Close the JSON object
         file.write('}')
 
-# Function that creates the message digest
-
-
+# Function that creates the message digest of a message
 def create_message_digest(message):
     if isinstance(message, str):
         # Check if the message is in byte form - if not, encode it
@@ -59,15 +56,19 @@ def create_message_digest(message):
     digest = hashlib.sha256(message).hexdigest()
     return digest
 
-
+# Function that prompts the user with the options to SEND, RECEIVE or QUIT
 def accessMenu(serversocket, email):
+    # Prompt the user with the menu options
     menuMessage = "Do you want to [SEND] or [RECEIVE] or [Q]uit?"
     serversocket.send(menuMessage.encode('utf-8'))
     menuOption = serversocket.recv(1024).decode().strip()
+
+    # Validate the user's input
     while menuOption not in ["SEND", "RECEIVE", "Q"]:
-        serversocket.send(
-            "UNKNOWN COMMAND. Do you want to [SEND] or [RECEIVE] or [Q]uit?".encode('UTF-8'))
+        serversocket.send("UNKNOWN COMMAND. Do you want to [SEND] or [RECEIVE] or [Q]uit?".encode('UTF-8'))
         menuOption = serversocket.recv(1024).decode()
+
+    # Handle the selected menu option
     if menuOption == "SEND":
         serversocket.send("SERVER IS READY TO RECEIVE".encode('utf-8'))
         serverReceive(serversocket, email)
@@ -81,12 +82,12 @@ def accessMenu(serversocket, email):
         serversocket.send("Bye Bye".encode('utf-8'))
         serversocket.close()
 
-
+# Function that sends a message to the client
 def send_message(s, header):
     s.send(header.encode('utf-8'))
     s.send(b'END')
 
-
+# Function that receives a message from the client
 def serverReceive(serversocket, email):
     print("CLIENT IS ATTEMPTING TO SEND")
     serversocket.send(
@@ -97,7 +98,7 @@ def serverReceive(serversocket, email):
 
     filename = 'users.json'
     data = load_data(filename)
-
+    # if recipientEmail not found in users.json, prompt user to try again
     while recipientEmail not in data['users']:
         serversocket.send(
             "Recipient not found. Please try again.".encode('utf-8'))
@@ -111,6 +112,7 @@ def serverReceive(serversocket, email):
     serversocket.send(data['users'][recipientEmail]
                       ['public_key'].encode('utf-8'))
     all_data = ""
+    # Receive the message data
     try:
         while True:
             data = serversocket.recv(1024).decode('utf-8')
@@ -151,7 +153,7 @@ def serverReceive(serversocket, email):
     print("Message saved")
     serversocket.send("Message sent successfully!".encode('utf-8'))
 
-
+# Function that initiates the sending of messages to the client
 def serverSend(serversocket, email):
     print("RECEIVING")
     filename = 'messages.json'
@@ -159,23 +161,24 @@ def serverSend(serversocket, email):
     waiting_messages = []
     sender_certificate_arr = []
     messages = []
-    #casignature_arr = []
     message_senders = []
+    # append all messages for the recipient to waiting_messages
     for message in data['messages']:
         if (message['recipient'] == email):
             waiting_messages.append(message['messageContent'])
             sender_certificate_arr.append(message['senderCertificate'])
             message_senders.append(message['sender'])
-            #casignature_arr.append(message['CASignature'])
         else:
             messages.append(message)
     data_to_save = {'messages': messages}
+    # delete all messages for the recipient from the json file
     delete_received_messages(filename, messages)
     if (waiting_messages == []):
         response = "No messages currently stored for recipient " + email
         print(response)
         serversocket.send(response.encode('utf-8'))
     else:
+        # Send all messages to the client
         for i in range(len(waiting_messages)):
             print("Sending message number " + str(i))
             serversocket.send(str(i).encode('utf-8'))
@@ -207,26 +210,33 @@ def serverSend(serversocket, email):
         serversocket.send(complete_message.encode('utf-8'))
         print(serversocket.recv(1024).decode())
 
+# Function that registers a user
 def register_user(username, public_key):
+    # Load user data from JSON file
     filename = 'users.json'
     data = load_data(filename)
+
+    # Check if user already exists
     if username not in data['users']:
+        # Create the user's certificate
         certificateUnprotected = username + "///" + public_key
         certificateProtected = gpg.sign(
             certificateUnprotected, passphrase=CApassphrase)
         print(username + "\n" + str(certificateProtected))
 
+        # Add user to the data dictionary
         data['users'][username] = {
             "public_key": public_key,
             "certificate": str(certificateProtected),
         }
 
+        # Save the updated data to the JSON file
         save_data(filename, data)
-        return True
+        return True  # User successfully registered
     print("This brudda is already here")
     return False  # User already exists
 
-
+# Function that logs a user in
 def login(serversocket):
     print("LOGIN ATTEMPT")
     data = load_data('users.json')
@@ -246,15 +256,16 @@ def login(serversocket):
     pubKey = data['users'][emailResponse]['public_key']
 
     import_result = gpg.import_keys(pubKey)
-    # print(import_result.fingerprints)
 
     if not import_result.counts:
         raise ValueError("Public key import failed.")
     
+    # Generate a random nonce
     nonce = str(random.randint(1, 10000000000000000000000000))
+    # Encrypt the nonce with the user's public key
     encrypted_nonce = gpg.encrypt(
         nonce, recipients=[emailResponse], always_trust=True)
-    
+    # Check if the encryption was successful
     if not encrypted_nonce.ok:
         raise ValueError("Encryption failed:", encrypted_nonce.status)
     serversocket.send(str(encrypted_nonce).encode('utf-8'))
@@ -266,10 +277,12 @@ def login(serversocket):
     with open('CA1_public_key.asc', 'r') as file:
         CApublickey = file.read()
         serversocket.send(CApublickey.encode('utf-8'))
-
+    # receive encrypted nonce from client, encrypted with CA public key
     encrypted_nonce_client = serversocket.recv(1024).decode()
+    # decrypt nonce from client with CA private key
     decrypted_nonce_client = gpg.decrypt(
         encrypted_nonce_client, passphrase=CApassphrase, always_trust=True)
+    # check if decrypted nonce from client matches the orginal nonce
     if str(decrypted_nonce_client) == nonce:
         print("LOGIN SUCCESSFUL")
         loginSuccessMsg = "Login Success"
@@ -286,7 +299,7 @@ def login(serversocket):
         serversocket.send(loginFailMessage.encode('utf-8'))
         serversocket.close()
 
-
+# Function that allows a user to sign up
 def signup(serversocket):
     print("SIGN UP")
     email = serversocket.recv(1024).decode().strip()
@@ -304,7 +317,7 @@ def signup(serversocket):
         public_key = serversocket.recv(1024).decode()
         register_user(email, public_key)
 
-
+# Function that manages the login process
 def loginmanagement(authmessage, serversocket):
     while (authmessage not in ["LOGIN", "SIGN UP", "Q"]):
         serversocket.send(
@@ -319,7 +332,7 @@ def loginmanagement(authmessage, serversocket):
         serversocket.send("Bye Bye".encode('utf-8'))
         serversocket.close()
 
-
+# Function that handles the initial connection with the client
 def clientHandler(serversocket, address):
     message = 'Hello! Thank you for connecting to the server' + \
         "\r\nDo you want to [LOGIN] or [SIGN UP] or [Q]uit?"  # Login or Sign up
